@@ -7,6 +7,8 @@ project('seticore', ['cpp', 'c', 'cuda'],
 
 basic_cuda_args = [ '--std=c++14' ]
 newer_cuda_args = [ '--display-error-number',
+		            '--gpu-architecture=compute_86',
+		            '--gpu-code=sm_86',
                     '--diag-suppress=1675' ]
 
 nvcc_release = run_command('./nvcc_release.sh', check: true).stdout().strip()
@@ -90,7 +92,7 @@ libseticore = static_library('seticore', srcs, dependencies: deps, cuda_args: cu
 
 # The main binaries
 
-executable('seticore', ['main.cpp'],
+executable('seticore2', ['main.cpp'],
            dependencies: deps,
            link_with: libseticore)
 
