@@ -14,7 +14,7 @@ H5=blc17_guppi_59544_62191_HIP99317_0059.rawspec.0000.h5
 
 echo regression testing...
 
-./build/seticore data/$H5 --max_drift=0.4 --snr=10 --min_drift=0 --output=data/testout.hits \
+./build/seticore2 data/$H5 --max_drift=0.4 --snr=10 --min_drift=0 --output=data/testout.hits \
     | tee data/output.txt
 echo diffing against expected output.
 grep -v version data/output.txt | diff - data/golden.txt | tee data/diff.txt
