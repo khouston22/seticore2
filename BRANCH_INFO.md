@@ -33,3 +33,4 @@ Variant of sc2 using fastDD CPU code.
 
 Further refactoring, TBD.
 
+Note that after switching branches ("git checkout branch_name"), it is necessary to recompile ("meson compile").
