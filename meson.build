@@ -76,6 +76,7 @@ srcs = [
     'thread_util.cpp',
     'upchannelizer.cu',
     'util.cpp',
+    'detection_fns.cu',
 ]
 
 tests = [

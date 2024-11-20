@@ -12,6 +12,8 @@
 #include "taylor.h"
 #include "util.h"
 
+#include "detection_fns.h"
+
 /*
   Gather information about the top hits.
 
@@ -44,6 +46,31 @@ __global__ void findTopPathSums(const float* path_sums, int num_timesteps, int n
       // No more of these paths can be valid, either
       return;
     }
+
+    float path_sum = path_sums[num_freqs * path_offset + freq];
+    if (path_sum > top_path_sums[freq]) {
+      top_path_sums[freq] = path_sum;
+      top_drift_blocks[freq] = drift_block;
+      top_path_offsets[freq] = path_offset;
+    }
+  }
+}
+
+__global__ void findTopPathSums2(const float* path_sums, int Nr, int num_freqs,
+                                int drift_block, float* top_path_sums,
+                                int* top_drift_blocks, int* top_path_offsets) {
+  int freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (freq < 0 || freq >= num_freqs) {
+    return;
+  }
+
+  for (int path_offset = 0; path_offset < Nr-1; ++path_offset) {
+    // // Check if the last frequency in this path is out of bounds
+    // int last_freq = (Nr - 1) * drift_block + path_offset + freq;
+    // if (last_freq < 0 || last_freq >= num_freqs) {
+    //   // No more of these paths can be valid, either
+    //   return;
+    // }
 
     float path_sum = path_sums[num_freqs * path_offset + freq];
     if (path_sum > top_path_sums[freq]) {
@@ -197,6 +224,43 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   int min_drift_block = floor(-normalized_max_drift);
   int max_drift_block = floor(normalized_max_drift);
 
+  int n_sti,n_lti,n_avg;
+  float fs = metadata.foff*1e6; // FFT filter bank output sample rate prior to sti sum = bin bandwidth
+
+  n_sti= abs(round(metadata.tsamp*fs));
+  n_lti = num_timesteps;
+  n_avg = n_sti*n_lti;
+  float xf = 1./n_avg/2.;
+
+  int mid = num_channels / 2;
+
+  printf("\ncoarse channel %d, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
+          coarse_channel,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
+
+  #define NEW_NORM 1
+  #if NEW_NORM
+    int n_subband = 128;
+    float *subband_mean,*subband_std,*subband_limit,*subband_det_threshold;
+    float *work;
+    int Nf_subband = num_channels/n_subband;
+    float *subband_m_std_ratio;
+    float *subband_dd_mean,*subband_dd_std;
+
+    printf("\nNf=%d,n_subband=%d, Nf_subband=%d:\n",num_channels,n_subband,Nf_subband);
+  
+    subband_mean = (float *) malloc(n_subband*sizeof(float));
+    subband_std  = (float *) malloc(n_subband*sizeof(float));
+    subband_limit = (float *) malloc(n_subband*sizeof(float));
+    subband_det_threshold = (float *) malloc(n_subband*sizeof(float));
+    work = (float *) malloc(Nf_subband*sizeof(float));
+    subband_m_std_ratio  = (float *) malloc(n_subband*sizeof(float));
+    subband_dd_mean = (float *) malloc(n_subband*sizeof(float));
+    subband_dd_std  = (float *) malloc(n_subband*sizeof(float));
+  #endif
+  
+  long start_ms = timeInMS();
+  long start_ms_all = timeInMS();
+  
   // This will create one cuda thread per frequency bin
   int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
 
@@ -207,8 +271,10 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.data, gpu_column_sums,
                                               rounded_num_timesteps, num_channels);
   checkCuda("sumColumns");
-  
-  int mid = num_channels / 2;
+
+  double t_sumcols_sec = (timeInMS() - start_ms)*.001;
+  printf("Sum Columns Elapsed time: %.2f sec\n",t_sumcols_sec);
+  start_ms = timeInMS();
 
   // Do the Taylor tree algorithm for each drift block
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
@@ -239,9 +305,84 @@ void Dedopplerer::search(const FilterbankBuffer& input,
              num_channels * sizeof(int), cudaMemcpyDeviceToHost);
   checkCuda("dedoppler d->h memcpy");
   
+  double t_DD_sec = (timeInMS() - start_ms)*.001;
+  printf("Taylor GPU Elapsed time: %.2f sec\n",t_DD_sec);
+
+  /*
+  ** Run special test averaging increasing durations, verify non-coh gain
+  */
+
+  #if 0
+    ncoh_avg_test(input.data, num_channels, num_timesteps, n_sti, 1);
+    ncoh_avg_test(input.data, num_channels, num_timesteps, n_sti, 8);
+    ncoh_avg_test(input.data, num_channels, num_timesteps, n_sti, 32);
+    ncoh_avg_test(input.data, num_channels, num_timesteps, n_sti, 128);
+  #endif
+
+  /*
+  ** Find detections
+  */
+
+  start_ms = timeInMS();
+
+
   // Use the central 90% of the column sums to calculate standard deviation.
   // We don't need to do a full sort; we can just calculate the 5th,
   // 50th, and 95th percentiles
+
+  #if 1
+  // remove DC bins
+  cpu_column_sums[mid-2]=0.;
+  cpu_column_sums[mid-1]=0.;
+  cpu_column_sums[mid]=0.;
+  cpu_column_sums[mid+1]=0.;
+  cpu_column_sums[mid+2]=0.;
+  #endif
+
+  for (int freq=0; freq<num_channels; freq++){
+    cpu_column_sums[freq] *= xf;
+    cpu_top_path_sums[freq] *= xf;
+  }
+
+  #if NEW_NORM
+    if (n_subband==1){
+      calc_mean_std_dev(cpu_column_sums,num_channels,subband_mean,subband_std);
+    } else {
+      float shear_constant = 2.3;
+      multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
+                  work,subband_mean,subband_std,subband_limit);
+    }
+    
+    for (int i_band=0; i_band<n_subband; i_band++){
+      subband_m_std_ratio[i_band] = subband_mean[i_band]/subband_std[i_band];
+      subband_det_threshold[i_band] = subband_mean[i_band] + snr_threshold*subband_std[i_band];
+      if (i_band==0) {
+          printf("band=%d mean=%.0f std=%.0f mean/std=%.2f, snr_threshold=%.2f, det_thr=%.0f\n",
+          i_band,subband_mean[i_band],subband_std[i_band],subband_m_std_ratio[i_band],snr_threshold,subband_det_threshold[i_band]);
+      }
+    }
+    float m_std_ratio_mean,m_std_ratio_std;
+    calc_mean_std_dev(subband_m_std_ratio,n_subband,&m_std_ratio_mean,&m_std_ratio_std);
+    printf("n_subband=%d m_std_ratio_mean=%.2f m_std_ratio_std=%.2f\n\n",
+          n_subband,m_std_ratio_mean,m_std_ratio_std);
+    #if 1
+      if (n_subband==1){
+        calc_mean_std_dev(cpu_top_path_sums,num_channels,subband_dd_mean,subband_dd_std);
+      } else {
+        float shear_constant = 2.3;
+        multipass_subband_mean_std(cpu_top_path_sums,num_channels,n_subband,shear_constant,
+                    work,subband_dd_mean,subband_dd_std,subband_limit);
+      }
+      for (int i_band=0; i_band<n_subband; i_band++){
+        if (i_band==0) {
+            printf("band=%d top mean=%.0f top std=%.0f mean/thr=%.2f\n",
+            i_band,subband_dd_mean[i_band],subband_dd_std[i_band],subband_dd_mean[i_band]/subband_det_threshold[i_band]);
+        }
+      }
+    #endif
+  #endif
+
+
   auto column_sums_end = cpu_column_sums + num_channels;
   std::nth_element(cpu_column_sums, cpu_column_sums + mid, column_sums_end);
   int first = ceil(0.05 * num_channels);
@@ -252,6 +393,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                    column_sums_end);
   float median = cpu_column_sums[mid];
     
+#if 0   
   float sum = std::accumulate(cpu_column_sums + first, cpu_column_sums + last + 1, 0.0);
   float m = sum / (last + 1 - first);
   float accum = 0.0;
@@ -260,7 +402,14 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                   accum += (f - m) * (f - m);
                 });
   float std_dev = sqrt(accum / (last + 1 - first));
+#else
+  float m,std_dev;
+  calc_mean_std_dev(&cpu_column_sums[first], last + 1 - first, &m, &std_dev);
+#endif
+  double t_stats_sec = (timeInMS() - start_ms)*.001;
+  printf("Stats Elapsed time: %.2f sec\n",t_stats_sec);
 
+  start_ms = timeInMS();
     
   // We consider two hits to be duplicates if the distance in their
   // frequency indexes is less than window_size. We only want to
@@ -272,8 +421,26 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // window.
   float path_sum_threshold = snr_threshold * std_dev + median;
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
+
+  printf("foff=%f Hz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
+          metadata.foff*1e6,metadata.tsamp,n_sti,n_lti,n_avg,num_channels);
+  printf("median=%6.3f mean=%6.3f std_dev=%6.3f mean/std=%6.3f threshold=%6.3f\n",
+          median*xf,m*xf,std_dev*xf,m/std_dev,path_sum_threshold*xf);
+  printf("drift_rate_resolution=%.3f drift_timesteps=%d diagonal_drift_rate=%.3f\n",
+          drift_rate_resolution,drift_timesteps,diagonal_drift_rate);
+  printf("max_drift=%.2f normalized_max_drift=%.2f drift_timesteps=%d window_size=%d=>%.0f Hz\n\n",
+          max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
+
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
+
+    #if NEW_NORM
+      int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
+      path_sum_threshold = subband_det_threshold[i_band];
+      median = subband_mean[i_band];
+      std_dev = subband_std[i_band];
+    #endif
+
     float candidate_path_sum = path_sum_threshold;
 
     for (int j = 0; j < window_size; ++j) {
@@ -317,4 +484,21 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       }
     }
   }
+
+  #if NEW_NORM
+    free(subband_mean);
+    free(subband_std);
+    free(subband_limit);
+    free(subband_det_threshold);
+    free(work);
+    free(subband_m_std_ratio);
+    free(subband_dd_mean);
+    free(subband_dd_std);
+  #endif
+
+  double t_log_hits_sec = (timeInMS() - start_ms)*.001;
+  printf("Log Hits Elapsed time: %.2f sec\n",t_log_hits_sec);
+  double t_search_sec = (timeInMS() - start_ms_all)*.001;
+  printf("Search   Elapsed time: %.2f sec\n",t_search_sec);
+
 }
