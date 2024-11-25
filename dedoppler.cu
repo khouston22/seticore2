@@ -56,32 +56,6 @@ __global__ void findTopPathSums(const float* path_sums, int num_timesteps, int n
   }
 }
 
-__global__ void findTopPathSums2(const float* path_sums, int Nr, int num_freqs,
-                                int drift_block, float* top_path_sums,
-                                int* top_drift_blocks, int* top_path_offsets) {
-  int freq = blockIdx.x * blockDim.x + threadIdx.x;
-  if (freq < 0 || freq >= num_freqs) {
-    return;
-  }
-
-  for (int path_offset = 0; path_offset < Nr-1; ++path_offset) {
-    // // Check if the last frequency in this path is out of bounds
-    // int last_freq = (Nr - 1) * drift_block + path_offset + freq;
-    // if (last_freq < 0 || last_freq >= num_freqs) {
-    //   // No more of these paths can be valid, either
-    //   return;
-    // }
-
-    float path_sum = path_sums[num_freqs * path_offset + freq];
-    if (path_sum > top_path_sums[freq]) {
-      top_path_sums[freq] = path_sum;
-      top_drift_blocks[freq] = drift_block;
-      top_path_offsets[freq] = path_offset;
-    }
-  }
-}
-
-
 /*
   Sum the columns of a two-dimensional array.
   input is a (num_timesteps x num_freqs) array, stored in row-major order.
