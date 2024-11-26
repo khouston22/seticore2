@@ -328,11 +328,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   printf("n_subband=%d m_std_ratio_mean=%.2f vs %.2f m_std_ratio_std=%.2f\n\n",
         n_subband,m_std_ratio_mean,sqrt(2*n_avg),m_std_ratio_std);
   
-  int first = ceil(0.05 * num_channels);
-  int last = floor(0.95 * num_channels);
   float m,std_dev;
-  calc_mean_std_dev(&cpu_column_sums[first], last + 1 - first, &m, &std_dev);
-  float median = 0.0;
+  calc_mean_std_dev(cpu_column_sums, num_channels, &m, &std_dev);
+  float median = 0.0;   // not calculating this
 #else
   //  original seticore normalization
   // Use the central 90% of the column sums to calculate standard deviation.
@@ -389,10 +387,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     #if NEW_NORM
       int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
       float path_sum_threshold = subband_det_threshold[i_band];
-      median = subband_mean[i_band];
+      float local_mean = subband_mean[i_band];
       std_dev = subband_std[i_band];
     #else
-      float path_sum_threshold = snr_threshold * std_dev + median;
+      float local_mean = median;
+      float path_sum_threshold = snr_threshold * std_dev + local_mean;
     #endif
 
     float candidate_path_sum = path_sum_threshold;
@@ -426,7 +425,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       int drift_bins = cpu_top_drift_blocks[candidate_freq] * drift_timesteps +
         cpu_top_path_offsets[candidate_freq];
       double drift_rate = drift_bins * drift_rate_resolution;
-      float snr = (candidate_path_sum - median) / std_dev;
+      float snr = (candidate_path_sum - local_mean) / std_dev;
 
       if (abs(drift_rate) >= min_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
