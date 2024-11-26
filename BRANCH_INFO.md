@@ -7,7 +7,7 @@ seticore fork modified to run on a local machine
 ## sc1
 
 Add modifications to spectrogram normalization, threshold setting, and SNR estimates of detections.
-Uses baseline Taylor-tree GPU code.  
+Uses baseline Taylor-tree GPU code.  Switch NEW_NORM defined to allow comparison between new and old normalization methods.
 
 ## sc2
 
