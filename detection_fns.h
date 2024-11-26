@@ -15,6 +15,9 @@
 #define	MIN(A, B)	(((A) < (B)) ? (A) : (B))
 #endif
 
+#define N_SUBBAND 128
+#define N_SUBBAND_MAX 128
+
 void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_freq);
 
 void calc_mean_std_dev(const float* x, int n, float *mean, float *std_dev);
