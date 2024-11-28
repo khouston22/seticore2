@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#define MANAGED_INPUT 0
+
 using namespace std;
 
 /*
@@ -27,6 +29,8 @@ class FilterbankBuffer {
 
   // Create a managed buffer
   FilterbankBuffer(int num_timesteps, int num_channels);
+  // Create a managed buffer or host-only buffer
+  FilterbankBuffer(int num_timesteps, int num_channels, bool managed);
 
   // Create an unmanaged buffer, essentially a view on a pre-existing buffer
   FilterbankBuffer(int num_timesteps, int num_channels, float* data);

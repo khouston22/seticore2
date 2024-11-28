@@ -15,7 +15,24 @@ FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels)
     size(num_timesteps * num_channels),
     bytes(sizeof(float) * size) {
   cudaMallocManaged(&data, bytes);
+  cout << fmt::format("Filterbank managed data: {:.2f} MB\n",(long) bytes/1024./1024.);
   checkCudaMalloc("FilterbankBuffer", bytes);
+}
+
+// Creates a buffer that owns its own memory.
+FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels, bool managed)
+  : num_timesteps(num_timesteps), num_channels(num_channels), managed(managed),
+    size(num_timesteps * num_channels),
+    bytes(sizeof(float) * size) {
+  if (managed) {
+    cudaMallocManaged(&data, bytes);
+    cout << fmt::format("Filterbank managed2 data: {:.2f} MB\n",(long) bytes/1024./1024.);
+    checkCudaMalloc("FilterbankBuffer managed", bytes);
+  } else {
+    cudaMallocHost(&data, bytes);
+    cout << fmt::format("Filterbank Host data: {:.2f} MB\n",(long) bytes/1024./1024.);
+    checkCudaMalloc("FilterbankBuffer cudaMallocHost", bytes);
+  }
 }
 
 // Creates a buffer that is a view on memory owned by the caller.
@@ -28,6 +45,8 @@ FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels, float* d
 FilterbankBuffer::~FilterbankBuffer() {
   if (managed) {
     cudaFree(data);
+  } else {
+    cudaFreeHost(data);
   }
 }
 

@@ -217,11 +217,23 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // This will create one cuda thread per frequency bin
   int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
 
-  // Zero out the path sums in between each coarse channel because
+    float *d_sg;
+
+  #if MANAGED_INPUT
+    d_sg = input.data;
+  #else
+    int n_byte_sg = num_channels*rounded_num_timesteps*sizeof(float);
+    cudaMalloc(&d_sg,n_byte_sg);
+    checkCuda("cudaMalloc-d_sg");
+    cudaMemcpy(d_sg,input.data,n_byte_sg,cudaMemcpyHostToDevice);
+    checkCuda("cudaMemcpy-d_sg");
+  #endif
+ 
+ // Zero out the path sums in between each coarse channel because
   // we pick the top hits separately for each coarse channel
   cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
 
-  sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.data, gpu_column_sums,
+  sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(d_sg, gpu_column_sums,
                                               rounded_num_timesteps, num_channels);
   checkCuda("sumColumns");
 
@@ -231,7 +243,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // Do the Taylor tree algorithm for each drift block
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
     // Calculate Taylor sums
-    const float* taylor_sums = optimizedTaylorTree(input.data, buffer1, buffer2,
+    const float* taylor_sums = optimizedTaylorTree(d_sg, buffer1, buffer2,
                                                    rounded_num_timesteps, num_channels,
                                                    drift_block);
 
@@ -259,6 +271,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   
   double t_DD_sec = (timeInMS() - start_ms)*.001;
   
+  #if MANAGED_INPUT
+  #else
+    cudaFree(d_sg);
+  #endif
+
   /*
   ** Run special test averaging increasing durations, verify non-coh gain
   */
