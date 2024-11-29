@@ -462,7 +462,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   double t_log_hits_sec = (timeInMS() - start_ms)*.001;
   double t_search_sec = (timeInMS() - start_ms_all)*.001;
 
-  printf("Elapsed times for coarse channel %d:\n",coarse_channel);
+  printf("Elapsed times: coarse chnl %d, UM %d, fft %d, sti %d, lti %d\n",
+              coarse_channel,(int)MANAGED_INPUT,num_channels,n_sti,n_lti);
   printf("Sum Columns:     %.3f sec\n",t_sumcols_sec);
   printf("Taylor GPU:      %.3f sec\n",t_DD_sec);
   printf("Stats:           %.3f sec\n",t_stats_sec);
