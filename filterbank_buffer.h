@@ -23,9 +23,12 @@ class FilterbankBuffer {
   
   /*
     Row-major indexed by:
-      data[time][freq]
+      sg_data[time][freq]
    */
-  float* data;
+  // host and device spectrogram data (managed) or host pinned sg data (unmanaged)
+  float* sg_data; 
+  // spectrogram data in gpu device (managed or unmanaged) 
+  float* d_sg_data;  
 
   // Create a managed buffer
   FilterbankBuffer(int num_timesteps, int num_channels);
@@ -33,7 +36,7 @@ class FilterbankBuffer {
   FilterbankBuffer(int num_timesteps, int num_channels, bool managed);
 
   // Create an unmanaged buffer, essentially a view on a pre-existing buffer
-  FilterbankBuffer(int num_timesteps, int num_channels, float* data);
+  FilterbankBuffer(int num_timesteps, int num_channels, float* sg_data);
   
   ~FilterbankBuffer();
 

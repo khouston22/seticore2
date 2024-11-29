@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
   for (int drift_block = -2; drift_block <= 2; ++drift_block) {
     cout << "\ndrift block " << drift_block << endl;
     long start = timeInMS();
-    basicTaylorTree(input.data, buffer1.data, buffer2.data,
+    basicTaylorTree(input.sg_data, buffer1.sg_data, buffer2.sg_data,
                     num_timesteps, num_channels, drift_block);
     cudaDeviceSynchronize();
     long end = timeInMS();
@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
                         (end - start) / 1000.0);
 
     start = timeInMS();
-    optimizedTaylorTree(input.data, buffer1.data, buffer2.data,
+    optimizedTaylorTree(input.sg_data, buffer1.sg_data, buffer2.sg_data,
                         num_timesteps, num_channels, drift_block);
 
     cudaDeviceSynchronize();

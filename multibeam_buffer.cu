@@ -68,7 +68,7 @@ void MultibeamBuffer::copyRegionAsync(int beam, int channel_offset,
   size_t source_pitch = sizeof(float) * num_channels;
   size_t width = sizeof(float) * output->num_channels;
   size_t dest_pitch = width;
-  cudaMemcpy2DAsync(output->data, dest_pitch,
+  cudaMemcpy2DAsync(output->sg_data, dest_pitch,
                     (void*) region_start, source_pitch,
                     width, num_timesteps,
                     cudaMemcpyDefault);

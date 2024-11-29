@@ -59,7 +59,7 @@ void EventFileWriter::write(const vector<DedopplerHit*>& hits,
   for (int i = 0; i < (int) hits.size(); ++i) {
     Filterbank::Builder filterbank = hits_builder[i].getFilterbank();
     buildFilterbank(*metadatas[i], beam, coarse_channel, low_index, high_index,
-                    buffers[i]->data, filterbank);
+                    buffers[i]->sg_data, filterbank);
     
     if (hits[i] != NULL) {
       buildSignal(*hits[i], hits_builder[i].getSignal());

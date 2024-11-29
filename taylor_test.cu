@@ -29,17 +29,17 @@ TEST_CASE("optimized taylor outputs match basic algorithm", "[taylor]") {
       opt_buffer2.zero();
       cudaDeviceSynchronize();
     
-      const float* basic_ptr = basicTaylorTree(input.data,
-                                               basic_buffer1.data, basic_buffer2.data,
+      const float* basic_ptr = basicTaylorTree(input.sg_data,
+                                               basic_buffer1.sg_data, basic_buffer2.sg_data,
                                                num_timesteps, num_channels, drift_block);
-      const FilterbankBuffer& basic = (basic_ptr == basic_buffer1.data)
+      const FilterbankBuffer& basic = (basic_ptr == basic_buffer1.sg_data)
         ? basic_buffer1 : basic_buffer2;
 
-      const float* opt_ptr = optimizedTaylorTree(input.data,
-                                                 opt_buffer1.data, opt_buffer2.data,
+      const float* opt_ptr = optimizedTaylorTree(input.sg_data,
+                                                 opt_buffer1.sg_data, opt_buffer2.sg_data,
                                                  num_timesteps, num_channels,
                                                  drift_block);
-      const FilterbankBuffer& opt = (opt_ptr == opt_buffer1.data)
+      const FilterbankBuffer& opt = (opt_ptr == opt_buffer1.sg_data)
         ? opt_buffer1 : opt_buffer2;
       
       cudaDeviceSynchronize();

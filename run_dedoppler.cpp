@@ -52,7 +52,7 @@ void runDedoppler(const string& input_filename, const string& output_filename,
     dedopplerer.search(buffer, *file.get(), NO_BEAM, coarse_channel, max_drift, min_drift,
                        snr_threshold, &hits);
     for (DedopplerHit hit : hits) {        
-      recorder->recordHit(hit, buffer.data);
+      recorder->recordHit(hit, buffer.sg_data);
     }
   }
 }

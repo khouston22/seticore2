@@ -185,7 +185,7 @@ void H5Reader::loadCoarseChannel(int i, FilterbankBuffer* buffer) const {
     
   // Copy from dataspace to memspace
   if (H5Dread(dataset, H5T_NATIVE_FLOAT, memspace, dataspace, H5P_DEFAULT,
-              buffer->data) < 0) {    
+              buffer->sg_data) < 0) {    
     fatal("h5 read failed. make sure that plugin files are in the plugin directory:",
           H5_DEFAULT_PLUGINDIR);
   }
@@ -196,14 +196,14 @@ void H5Reader::loadCoarseChannel(int i, FilterbankBuffer* buffer) const {
     // Zero out the extra buffer space
     int num_floats_loaded = num_timesteps * coarse_channel_size;
     int num_zeros_needed = (buffer->num_timesteps - num_timesteps) * coarse_channel_size;
-    memset(buffer->data + num_floats_loaded, 0, num_zeros_needed * sizeof(float));
+    memset(buffer->sg_data + num_floats_loaded, 0, num_zeros_needed * sizeof(float));
   }
 
   if (has_dc_spike) {
     // Remove the DC spike by making it the average of the adjacent columns
     int mid = coarse_channel_size / 2;
     for (int row_index = 0; row_index < num_timesteps; ++row_index) {
-      float* row = buffer->data + row_index * coarse_channel_size;
+      float* row = buffer->sg_data + row_index * coarse_channel_size;
       row[mid] = (row[mid - 1] + row[mid + 1]) / 2.0;
     }
   }

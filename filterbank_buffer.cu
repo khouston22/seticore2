@@ -14,9 +14,10 @@ FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels)
   : num_timesteps(num_timesteps), num_channels(num_channels), managed(true),
     size(num_timesteps * num_channels),
     bytes(sizeof(float) * size) {
-  cudaMallocManaged(&data, bytes);
+  cudaMallocManaged(&sg_data, bytes);
   cout << fmt::format("Filterbank managed data: {:.2f} MB\n",(long) bytes/1024./1024.);
   checkCudaMalloc("FilterbankBuffer", bytes);
+  d_sg_data = sg_data;
 }
 
 // Creates a buffer that owns its own memory.
@@ -25,34 +26,38 @@ FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels, bool man
     size(num_timesteps * num_channels),
     bytes(sizeof(float) * size) {
   if (managed) {
-    cudaMallocManaged(&data, bytes);
+    cudaMallocManaged(&sg_data, bytes);
     cout << fmt::format("Filterbank managed2 data: {:.2f} MB\n",(long) bytes/1024./1024.);
     checkCudaMalloc("FilterbankBuffer managed", bytes);
+    d_sg_data = sg_data;
   } else {
-    cudaMallocHost(&data, bytes);
+    cudaMallocHost(&sg_data, bytes);
     cout << fmt::format("Filterbank Host data: {:.2f} MB\n",(long) bytes/1024./1024.);
     checkCudaMalloc("FilterbankBuffer cudaMallocHost", bytes);
-  }
+    cudaMalloc(&d_sg_data,bytes);
+    checkCudaMalloc("cudaMalloc-d_sg_data",bytes);
+    }
 }
 
 // Creates a buffer that is a view on memory owned by the caller.
-FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels, float* data)
+FilterbankBuffer::FilterbankBuffer(int num_timesteps, int num_channels, float* sg_data)
   : num_timesteps(num_timesteps), num_channels(num_channels), managed(false),
     size(num_timesteps * num_channels),
-    bytes(sizeof(float) * size), data(data) {
+    bytes(sizeof(float) * size), sg_data(sg_data) {
 }
 
 FilterbankBuffer::~FilterbankBuffer() {
   if (managed) {
-    cudaFree(data);
+    cudaFree(sg_data);
   } else {
-    cudaFreeHost(data);
+    cudaFreeHost(sg_data);
+    cudaFree(d_sg_data);
   }
 }
 
 // Set everything to zero
 void FilterbankBuffer::zero() {
-  memset(data, 0, sizeof(float) * num_timesteps * num_channels);
+  memset(sg_data, 0, sizeof(float) * num_timesteps * num_channels);
 }
 
 // Inefficient but useful for testing
@@ -60,14 +65,14 @@ void FilterbankBuffer::set(int time, int channel, float value) {
   assert(0 <= time && time < num_timesteps);
   assert(0 <= channel && channel < num_channels);
   int index = time * num_channels + channel;
-  data[index] = value;
+  sg_data[index] = value;
 }
 
 float FilterbankBuffer::get(int time, int channel) const {
   cudaDeviceSynchronize();
   checkCuda("FilterbankBuffer get");
   int index = time * num_channels + channel;
-  return data[index];
+  return sg_data[index];
 }
 
 void FilterbankBuffer::assertEqual(const FilterbankBuffer& other, int drift_block) const {

@@ -222,7 +222,7 @@ void BeamformingPipeline::findHits() {
                                                                       num_bands);
         FilterbankBuffer output(multibeam.getBeam(beam));
         H5Writer writer(h5_filename, band_metadata);
-        writer.setData(output.data);
+        writer.setData(output.sg_data);
         writer.close();
       }
       
@@ -243,7 +243,7 @@ void BeamformingPipeline::findHits() {
             for (int i = existing_size;
                  i < (int) hits_per_coarse_channel[coarse_channel].size(); ++i) {
               hit_recorder->recordHit(hits_per_coarse_channel[coarse_channel][i],
-                                      fb_buffer.data);
+                                      fb_buffer.sg_data);
             }
           }
         } else {
