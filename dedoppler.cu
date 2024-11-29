@@ -310,8 +310,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     cpu_top_path_sums[freq] *= xf;
   }
 
-#define NEW_NORM 1
-#if NEW_NORM
   int n_subband = N_SUBBAND;
   int Nf_subband = num_channels/n_subband;
   float subband_mean[N_SUBBAND_MAX];
@@ -348,31 +346,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float m,std_dev;
   calc_mean_std_dev(cpu_column_sums, num_channels, &m, &std_dev);
   float median = 0.0;   // not calculating this
-#else
-  //  original seticore normalization
-  // Use the central 90% of the column sums to calculate standard deviation.
-  // We don't need to do a full sort; we can just calculate the 5th,
-  // 50th, and 95th percentiles
-
-  auto column_sums_end = cpu_column_sums + num_channels;
-  std::nth_element(cpu_column_sums, cpu_column_sums + mid, column_sums_end);
-  int first = ceil(0.05 * num_channels);
-  int last = floor(0.95 * num_channels);
-  std::nth_element(cpu_column_sums, cpu_column_sums + first,
-                   cpu_column_sums + mid - 1);
-  std::nth_element(cpu_column_sums + mid + 1, cpu_column_sums + last,
-                   column_sums_end);
-  float median = cpu_column_sums[mid];
-    
-  float sum = std::accumulate(cpu_column_sums + first, cpu_column_sums + last + 1, 0.0);
-  float m = sum / (last + 1 - first);
-  float accum = 0.0;
-  std::for_each(cpu_column_sums + first, cpu_column_sums + last + 1,
-                [&](const float f) {
-                  accum += (f - m) * (f - m);
-                });
-  float std_dev = sqrt(accum / (last + 1 - first));
-#endif
 
   double t_stats_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
@@ -401,16 +374,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
 
-    #if NEW_NORM
-      int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
-      float path_sum_threshold = subband_det_threshold[i_band];
-      float local_mean = subband_mean[i_band];
-      std_dev = subband_std[i_band];
-    #else
-      float local_mean = median;
-      float path_sum_threshold = snr_threshold * std_dev + local_mean;
-    #endif
-
+    int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
+    float path_sum_threshold = subband_det_threshold[i_band];
+    float local_mean = subband_mean[i_band];
+    std_dev = subband_std[i_band];
+  
     float candidate_path_sum = path_sum_threshold;
 
     for (int j = 0; j < window_size; ++j) {
@@ -455,10 +423,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     }
   }
 
-  #if NEW_NORM
-    free(work);
-  #endif
-
+  free(work);
+  
   double t_log_hits_sec = (timeInMS() - start_ms)*.001;
   double t_search_sec = (timeInMS() - start_ms_all)*.001;
 
