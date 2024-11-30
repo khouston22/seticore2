@@ -189,7 +189,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                          int beam, int coarse_channel,
                          double max_drift, double min_drift, double snr_threshold,
                          vector<DedopplerHit>* output) {
-  assert(input.num_timesteps == rounded_num_timesteps);
+  assert(input.num_timesteps == rounded_num_timesteps);  // forces power of two
   assert(input.num_channels == num_channels);
 
   // Normalize the max drift in units of "horizontal steps per vertical step"
@@ -217,11 +217,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // This will create one cuda thread per frequency bin
   int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
 
-  #if MANAGED_INPUT
-  #else
+  if (!input.managed) {
+    // do explicit cpu to gpu copy for unmanaged sg buffers
     cudaMemcpy(input.d_sg_data,input.sg_data,input.bytes,cudaMemcpyHostToDevice);
     checkCuda("cudaMemcpy-d_sg");
-  #endif
+  }
  
   // Zero out the path sums in between each coarse channel because
   // we pick the top hits separately for each coarse channel
@@ -425,7 +425,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   double t_search_sec = (timeInMS() - start_ms_all)*.001;
 
   printf("Elapsed times: coarse chnl %d, UM %d, fft %d, sti %d, lti %d\n",
-              coarse_channel,(int)MANAGED_INPUT,num_channels,n_sti,n_lti);
+              coarse_channel,(int)input.managed,num_channels,n_sti,n_lti);
   printf("Sum Columns:     %.3f sec\n",t_sumcols_sec);
   printf("Taylor GPU:      %.3f sec\n",t_DD_sec);
   printf("Stats:           %.3f sec\n",t_stats_sec);
