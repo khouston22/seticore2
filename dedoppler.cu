@@ -163,7 +163,7 @@ void Dedopplerer::addIncoherentPower(const FilterbankBuffer& input,
 
     if (drift_block > current_drift_block) {
       // We need to analyze a new drift block
-      taylor_sums = optimizedTaylorTree(input.sg_data, buffer1, buffer2,
+      taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
                                         rounded_num_timesteps, num_channels,
                                         drift_block);
       current_drift_block = drift_block;
@@ -223,7 +223,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     checkCuda("cudaMemcpy-d_sg");
   #endif
  
- // Zero out the path sums in between each coarse channel because
+  // Zero out the path sums in between each coarse channel because
   // we pick the top hits separately for each coarse channel
   cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
 
