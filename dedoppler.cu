@@ -201,7 +201,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   int n_sti,n_lti,n_avg;
   float fs = metadata.foff*1e6; // FFT filter bank output sample rate prior to sti sum = bin bandwidth
 
-  n_sti= abs(round(metadata.tsamp*fs));
+  n_sti= MAX(1,abs(round(metadata.tsamp*fs)));
   n_lti = num_timesteps;
   n_avg = n_sti*n_lti;
   float xf = 1./n_avg/2.;
@@ -301,6 +301,10 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   int n_subband = N_SUBBAND;
   int Nf_subband = num_channels/n_subband;
+  if (Nf_subband<NF_SUBBAND_MIN) {
+    n_subband = 1;
+    Nf_subband = num_channels;
+  }
   float subband_mean[N_SUBBAND_MAX];
   float subband_std[N_SUBBAND_MAX];
   float subband_limit[N_SUBBAND_MAX];
@@ -311,7 +315,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   printf("\nNf=%d,n_subband=%d, Nf_subband=%d:\n",num_channels,n_subband,Nf_subband);
 
   if (n_subband==1){
-    calc_mean_std_dev(cpu_column_sums,num_channels,subband_mean,subband_std);
+    calc_mean_std_dev(cpu_column_sums,num_channels,&subband_mean[0],&subband_std[0]);
   } else {
     float shear_constant = 2.3;
     multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
@@ -327,10 +331,14 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         snr_threshold,subband_det_threshold[i_band]);
     }
   }
+  // examine mean/std ratio mean and std over all subbands
+  // should have low variation (std should be small)
   float m_std_ratio_mean,m_std_ratio_std;
-  calc_mean_std_dev(subband_m_std_ratio,n_subband,&m_std_ratio_mean,&m_std_ratio_std);
-  printf("n_subband=%d m_std_ratio_mean=%.2f vs %.2f m_std_ratio_std=%.2f\n\n",
-        n_subband,m_std_ratio_mean,sqrt(2*n_avg),m_std_ratio_std);
+  if (n_subband>1) { 
+    calc_mean_std_dev(subband_m_std_ratio,n_subband,&m_std_ratio_mean,&m_std_ratio_std);
+    printf("n_subband=%d m_std_ratio_mean=%.2f vs %.2f m_std_ratio_std=%.2f\n\n",
+          n_subband,m_std_ratio_mean,sqrt(2*n_avg),m_std_ratio_std);
+  }
   
   float m,std_dev;
   calc_mean_std_dev(cpu_column_sums, num_channels, &m, &std_dev);

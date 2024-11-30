@@ -17,6 +17,7 @@
 
 #define N_SUBBAND 128
 #define N_SUBBAND_MAX 128
+#define NF_SUBBAND_MIN 1024
 
 void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_freq);
 
