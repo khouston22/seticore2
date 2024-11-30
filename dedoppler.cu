@@ -302,8 +302,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   int n_subband = N_SUBBAND;
   int Nf_subband = num_channels/n_subband;
   if (Nf_subband<NF_SUBBAND_MIN) {
-    n_subband = 1;
-    Nf_subband = num_channels;
+    n_subband = MAX(1,num_channels/NF_SUBBAND_MIN);
+    Nf_subband = num_channels/n_subband;
   }
   float subband_mean[N_SUBBAND_MAX];
   float subband_std[N_SUBBAND_MAX];
@@ -342,7 +342,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   
   float m,std_dev;
   calc_mean_std_dev(cpu_column_sums, num_channels, &m, &std_dev);
-  float median = 0.0;   // not calculating this
 
   double t_stats_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
@@ -364,8 +363,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
             drift_rate_resolution,drift_timesteps,diagonal_drift_rate);
     printf("max_drift=%.2f normalized_max_drift=%.2f drift_timesteps=%d window_size=%d=>%.0f Hz\n",
             max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
-    printf("Overall Coarse Channel median=%6.0f mean=%6.0f std_dev=%6.0f mean/std=%6.3f vs %6.3f\n\n",
-            median,m,std_dev,m/std_dev,sqrt(2*n_avg));
+    printf("Overall Coarse Channel mean=%6.0f std_dev=%6.0f mean/std=%6.3f vs %6.3f\n\n",
+            m,std_dev,m/std_dev,sqrt(2*n_avg));
     }
 
   for (int i = 0; i * window_size < num_channels; ++i) {
