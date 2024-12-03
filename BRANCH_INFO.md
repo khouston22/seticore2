@@ -7,11 +7,15 @@ seticore fork modified to run on a local machine
 ## sc1
 
 Add modifications to spectrogram normalization, threshold setting, and SNR estimates of detections.
-Uses baseline Taylor-tree GPU code.  Switch NEW_NORM defined to allow comparison between new and old normalization methods.
+Uses baseline Taylor-tree GPU code.  Switch NEW_NORM is defined to allow comparison between new (=1) and old (=0) normalization methods.
+
+Note: With changes to any .h files, may need to do "meson setup --wipe" before "meson compile"
 
 ## sc2
 
-Add modified DD files, and allow for self-managed buffers.  Uses baseline Taylor-tree GPU code. This is the baseline for the IAC-2024 paper.
+Add modified DD files, and allow for self-managed buffers.  Uses baseline Taylor-tree GPU code. This is the baseline for the IAC-2024 paper.  
+
+New normalization is adopted (NEW_NORM=1 code). Switch MANAGED_INPUT defined to examine Unified Memory managed input (=1, previous baseline) vs. unmanaged input (=0, new baseline) with explicit host->device and device-> host transfers for DeDoppler processing.  Unmanaged buffers run considerably faster, with only a small number additional lines of code.
 
 ## sc2a
 
