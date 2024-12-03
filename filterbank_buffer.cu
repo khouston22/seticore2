@@ -58,9 +58,15 @@ FilterbankBuffer::~FilterbankBuffer() {
 // Set everything to zero
 void FilterbankBuffer::zero() {
   memset(sg_data, 0, sizeof(float) * num_timesteps * num_channels);
+  if (!managed) {
+    // do explicit cpu to gpu copy for unmanaged sg buffers
+    cudaMemcpy(d_sg_data,sg_data,bytes,cudaMemcpyHostToDevice);
+    checkCuda("cudaMemcpy-d_sg");
+  }
 }
 
 // Inefficient but useful for testing
+// Note: for unmanaged buffer, sets host buffer only. Need to do cudaMemcpyHostToDevice afterward
 void FilterbankBuffer::set(int time, int channel, float value) {
   assert(0 <= time && time < num_timesteps);
   assert(0 <= channel && channel < num_channels);
@@ -68,6 +74,7 @@ void FilterbankBuffer::set(int time, int channel, float value) {
   sg_data[index] = value;
 }
 
+// Note: for unmanaged buffer, gets host buffer value only. Need to do cudaMemcpyDeviceToHost beforehand
 float FilterbankBuffer::get(int time, int channel) const {
   cudaDeviceSynchronize();
   checkCuda("FilterbankBuffer get");
@@ -92,11 +99,16 @@ void FilterbankBuffer::assertEqual(const FilterbankBuffer& other, int drift_bloc
 
 // Make a filterbank buffer with a bit of deterministic noise so that
 // normalization doesn't make everything infinite SNR.
-FilterbankBuffer makeNoisyBuffer(int num_timesteps, int num_channels) {
-  FilterbankBuffer buffer(num_timesteps, num_channels);
+FilterbankBuffer makeNoisyBuffer(int num_timesteps, int num_channels, bool managed) {
+  FilterbankBuffer buffer(num_timesteps, num_channels, managed);
   buffer.zero();
   for (int chan = 0; chan < buffer.num_channels; ++chan) {
     buffer.set(0, chan, 0.1 * chan / buffer.num_channels);
+  }
+  if (!managed) {
+    // do explicit cpu to gpu copy for unmanaged sg buffers
+    cudaMemcpy(buffer.d_sg_data,buffer.sg_data,buffer.bytes,cudaMemcpyHostToDevice);
+    checkCuda("cudaMemcpy-d_sg");
   }
   return buffer;
 }

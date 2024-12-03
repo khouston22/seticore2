@@ -9,7 +9,7 @@
 TEST_CASE("basic functionality", "[dedoppler]") {
   int num_timesteps = 8;
   int num_channels = 1000;
-  FilterbankBuffer buffer(makeNoisyBuffer(num_timesteps, num_channels));
+  FilterbankBuffer buffer(makeNoisyBuffer(num_timesteps, num_channels,true));
   FilterbankMetadata metadata = FilterbankMetadata();
   
   // Draw a line drifting a few timesteps to the right

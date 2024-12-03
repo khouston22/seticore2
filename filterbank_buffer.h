@@ -55,5 +55,5 @@ class FilterbankBuffer {
 };
 
 // Fill a buffer with meaningless data for testing
-FilterbankBuffer makeNoisyBuffer(int num_timesteps, int num_channels);
+FilterbankBuffer makeNoisyBuffer(int num_timesteps, int num_channels, bool managed);
 
