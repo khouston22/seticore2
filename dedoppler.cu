@@ -304,12 +304,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     int Nt_sg = num_timesteps;           // SG number of lines (time values)
     double Lf = 1.0;            // PFB overlap factor (=1 for FFT filter bank) 
     int Nt = num_timesteps;    // total number of time samples to integrate (Nt/N0 is power of 2)   
-    int N0 = MIN(8,num_timesteps);  // first stage number of time samples   
-    //int N0 = MIN(16,num_timesteps);  // first stage number of time samples   
-    // int N0 = MIN(4,num_timesteps);  // first stage number of time samples   
-    // int N0 = MIN(2,num_timesteps);  // first stage number of time samples   
+    int N0 = MIN(FASTDD_N0,num_timesteps);  // first stage number of time samples   
     
-    // int max_DD_buffer_bytes = 0;
     double dfdt_min_nom,dfdt_max_nom;
     
     /* Check all metadata for all drift blocks to be sure to allocate correct buffer sizes */
