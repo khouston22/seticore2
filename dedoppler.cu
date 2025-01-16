@@ -12,7 +12,12 @@
 #include "taylor.h"
 #include "util.h"
 
+#include "fastDD_cpu.h"
 #include "detection_fns.h"
+
+# define DO_TAYLOR 0            // =1 Taylor =0 FastDD
+# define DO_FASTDD_GPU 1        // =1 fastDD GPU, =0 fastDD CPU
+# define FASTDD_N0 8            // fastDD first stage number of time steps
 
 /*
   Gather information about the top hits.
@@ -83,17 +88,33 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
       has_dc_spike(has_dc_spike), print_hits(false) {
   assert(num_timesteps > 1);
   rounded_num_timesteps = roundUpToPowerOfTwo(num_timesteps);
-  drift_timesteps = rounded_num_timesteps - 1;
+
+  #if DO_TAYLOR
+    drift_timesteps = rounded_num_timesteps - 1;
+        
+    // Allocate everything we need for GPU processing 
+    cudaMalloc(&buffer1, num_channels * rounded_num_timesteps * sizeof(float));
+    checkCuda("Dedopplerer buffer1 malloc");
+
+    cudaMalloc(&buffer2, num_channels * rounded_num_timesteps * sizeof(float));
+    checkCuda("Dedopplerer buffer2 malloc");
+
+  #else  // fastDD, one drift block at a time, Lf = Lr = 1, N0 a power of 2
+
+    drift_timesteps = rounded_num_timesteps;
+  
+    // Allocate everything we need for GPU processing
+    // buffer1 & buffer2 for fastDD are slightly larger by (N0+1)/N0 factor
+    cudaMalloc(&buffer1, (num_channels * rounded_num_timesteps * sizeof(float))/FASTDD_N0 * (FASTDD_N0+1));
+    checkCuda("Dedopplerer buffer1 malloc");
+
+    cudaMalloc(&buffer2, (num_channels * rounded_num_timesteps * sizeof(float))/FASTDD_N0 * (FASTDD_N0+1));
+    checkCuda("Dedopplerer buffer2 malloc");
+      
+   #endif
 
   drift_rate_resolution = 1e6 * foff / (drift_timesteps * tsamp);
-    
-  // Allocate everything we need for GPU processing 
-  cudaMalloc(&buffer1, num_channels * rounded_num_timesteps * sizeof(float));
-  checkCuda("Dedopplerer buffer1 malloc");
 
-  cudaMalloc(&buffer2, num_channels * rounded_num_timesteps * sizeof(float));
-  checkCuda("Dedopplerer buffer2 malloc");
-  
   cudaMalloc(&gpu_column_sums, num_channels * sizeof(float));
   cudaMallocHost(&cpu_column_sums, num_channels * sizeof(float));
   checkCuda("Dedopplerer column_sums malloc");
@@ -214,57 +235,220 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
   
-  // This will create one cuda thread per frequency bin
-  int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
+  #if DO_TAYLOR  
 
-  if (!input.managed) {
-    // do explicit cpu to gpu copy for unmanaged sg buffers
-    cudaMemcpy(input.d_sg_data,input.sg_data,input.bytes,cudaMemcpyHostToDevice);
-    checkCuda("cudaMemcpy-d_sg");
-  }
- 
-  // Zero out the path sums in between each coarse channel because
-  // we pick the top hits separately for each coarse channel
-  cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
+    if (!input.managed) {
+      // do explicit cpu to gpu copy for unmanaged sg buffers
+      cudaMemcpy(input.d_sg_data,input.sg_data,input.bytes,cudaMemcpyHostToDevice);
+      checkCuda("cudaMemcpy-d_sg");
+    }
 
-  sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
-                                              rounded_num_timesteps, num_channels);
-  checkCuda("sumColumns");
+    // This will create one cuda thread per frequency bin
+    int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
 
-  double t_sumcols_sec = (timeInMS() - start_ms)*.001;
-  start_ms = timeInMS();
+    // Zero out the path sums in between each coarse channel because
+    // we pick the top hits separately for each coarse channel
+    cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
 
-  // Do the Taylor tree algorithm for each drift block
-  for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
-    // Calculate Taylor sums
-    const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
-                                                   rounded_num_timesteps, num_channels,
-                                                   drift_block);
+    sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
+                                                rounded_num_timesteps, num_channels);
+    checkCuda("sumColumns");
 
-    // Track the best sums
-    findTopPathSums<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
-                                                     num_channels, drift_block,
-                                                     gpu_top_path_sums,
-                                                     gpu_top_drift_blocks,
-                                                     gpu_top_path_offsets);
-    checkCuda("findTopPathSums");
-  }
+    double t_sumcols_sec = (timeInMS() - start_ms)*.001;
+    start_ms = timeInMS();
 
-  // Now that we have done all the GPU processing for one coarse
-  // channel, we can copy the data back to host memory.
-  // These copies are not async, so they will synchronize to the default stream.
-  cudaMemcpy(cpu_column_sums, gpu_column_sums,
-             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_path_sums, gpu_top_path_sums,
-             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_drift_blocks, gpu_top_drift_blocks,
-             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_path_offsets, gpu_top_path_offsets,
-             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
-  checkCuda("dedoppler d->h memcpy");
+    // Do the Taylor tree algorithm for each drift block
+    for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+      // Calculate Taylor sums
+      const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
+                                                    rounded_num_timesteps, num_channels,
+                                                    drift_block);
+
+      // Track the best sums
+      findTopPathSums<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
+                                                      num_channels, drift_block,
+                                                      gpu_top_path_sums,
+                                                      gpu_top_drift_blocks,
+                                                      gpu_top_path_offsets);
+      checkCuda("findTopPathSums");
+    }
+
+    // Now that we have done all the GPU processing for one coarse
+    // channel, we can copy the data back to host memory.
+    // These copies are not async, so they will synchronize to the default stream.
+    cudaMemcpy(cpu_column_sums, gpu_column_sums,
+              num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(cpu_top_path_sums, gpu_top_path_sums,
+              num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(cpu_top_drift_blocks, gpu_top_drift_blocks,
+              num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(cpu_top_path_offsets, gpu_top_path_offsets,
+              num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+    checkCuda("dedoppler d->h memcpy");
+    
+    double t_DD_sec = (timeInMS() - start_ms)*.001;
+
+  #else  // fastDD GPU or CPU
+
+    /* Setup common to cpu and gpu versions */
+
+    start_ms = timeInMS();
+
+    DD_metadata *DD_meta,DD_meta1;
+    DD_meta = &DD_meta1;
+
+    double f_sg_min= metadata.fch1*1e6;  // SG start freq (bin center) Hz
+    double df_sg = metadata.foff*1e6;    // SG freq increment Hz
+    int Nf_sg = num_channels;            // SG number of frequency values
+    double dt_sg = tsamp;                // SG time increment per line (time resolution, lines might be averaged)
+    int Nt_sg = num_timesteps;           // SG number of lines (time values)
+    double Lf = 1.0;            // PFB overlap factor (=1 for FFT filter bank) 
+    int Nt = num_timesteps;    // total number of time samples to integrate (Nt/N0 is power of 2)   
+    int N0 = MIN(8,num_timesteps);  // first stage number of time samples   
+    //int N0 = MIN(16,num_timesteps);  // first stage number of time samples   
+    // int N0 = MIN(4,num_timesteps);  // first stage number of time samples   
+    // int N0 = MIN(2,num_timesteps);  // first stage number of time samples   
+    
+    // int max_DD_buffer_bytes = 0;
+    double dfdt_min_nom,dfdt_max_nom;
+    
+    /* Check all metadata for all drift blocks to be sure to allocate correct buffer sizes */
+
+    for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+      dfdt_min_nom =  drift_block*df_sg/dt_sg; // desired DD minimum frequency rate Hz/sec (input)
+      dfdt_max_nom =  (drift_block+1)*df_sg/dt_sg; // desired DD maximum frequency rate Hz/sec (input)
+      gen_fastDD_metadata(DD_meta,f_sg_min,df_sg,Nf_sg,dt_sg,Nt_sg,dfdt_min_nom,dfdt_max_nom,Lf,Nt,N0);
+      // max_DD_buffer_bytes = MAX(DD_meta->DD_buffer_bytes,max_DD_buffer_bytes);
+      //print_fastDD_metadata(DD_meta);
+    }
+    drift_rate_resolution = DD_meta->d_dfdt;
+
+    #if DO_FASTDD_GPU 
+
+      float *gpu_det_DD;
+      float *det_DD_work[2];
+
+      if (!input.managed) {
+        // do explicit cpu to gpu copy for unmanaged sg buffers
+        cudaMemcpy(input.d_sg_data,input.sg_data,input.bytes,cudaMemcpyHostToDevice);
+        checkCuda("cudaMemcpy-d_sg");
+      }
+
+      // This will create one cuda thread per frequency bin
+      int grid_size = (num_channels + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
   
-  double t_DD_sec = (timeInMS() - start_ms)*.001;
-  
+      det_DD_work[0] = buffer1;
+      det_DD_work[1] = buffer2;
+      
+      // Zero out the path sums in between each coarse channel because
+      // we pick the top hits separately for each coarse channel
+      cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
+
+      sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
+                                                  rounded_num_timesteps, num_channels);
+      
+      checkCuda("sumColumns");
+      double t_sumcols_sec = (timeInMS() - start_ms)*.001;
+      printf("Sum Columns Elapsed time: %.2f sec\n",t_sumcols_sec);
+      start_ms = timeInMS();
+
+      for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+
+        dfdt_min_nom =  drift_block*df_sg/dt_sg; // desired DD minimum frequency rate Hz/sec (input)
+        dfdt_max_nom =  (drift_block+1)*df_sg/dt_sg; // desired DD maximum frequency rate Hz/sec (input)
+      
+        gen_fastDD_metadata(DD_meta,f_sg_min,df_sg,Nf_sg,dt_sg,Nt_sg,dfdt_min_nom,dfdt_max_nom,Lf,Nt,N0);
+
+        gpu_det_DD = fastDD_gpu(input.d_sg_data,det_DD_work,DD_meta);
+      
+        //cudaDeviceSynchronize();
+        //checkCuda("fastDD_gpu_return");
+
+        // Track the best sums
+        findTopPathSums2<<<grid_size, CUDA_MAX_THREADS>>>(gpu_det_DD, DD_meta->Nr,
+                                                        num_channels, drift_block,
+                                                        gpu_top_path_sums,
+                                                        gpu_top_drift_blocks,
+                                                        gpu_top_path_offsets);
+        checkCuda("findTopPathSums2");
+      }
+
+      //cudaDeviceSynchronize();
+      // Now that we have done all the GPU processing for one coarse
+      // channel, we can copy the data back to host memory.
+      // These copies are not async, so they will synchronize to the default stream.
+      cudaMemcpy(cpu_column_sums, gpu_column_sums,
+                num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+      cudaMemcpy(cpu_top_path_sums, gpu_top_path_sums,
+                num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+      cudaMemcpy(cpu_top_drift_blocks, gpu_top_drift_blocks,
+                num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+      cudaMemcpy(cpu_top_path_offsets, gpu_top_path_offsets,
+                num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+      checkCuda("dedoppler d->h memcpy");
+      //cudaDeviceSynchronize();
+      
+      double t_DD_sec = (timeInMS() - start_ms)*.001;
+      printf("fastDD GPU Elapsed time: %.2f sec\n",t_DD_sec);
+
+      // cudaFree(d_sg);
+      // cudaFree(buffer1);
+      // cudaFree(buffer2);
+
+    #else   // run fastDD_cpu
+    
+      float *det_DD;
+      float *det_DD_work[2];
+
+      det_DD_work[0] = (float *) malloc(DD_meta->DD_buffer_bytes);
+      det_DD_work[1] = (float *) malloc(DD_meta->DD_buffer_bytes);
+      
+      zeroTopPathSums_cpu(num_channels,cpu_top_path_sums,
+                            cpu_top_drift_blocks,cpu_top_path_offsets);
+      
+      printf("\nTwo det_DD_work arrays allocated, each %.0f MBytes\n",DD_meta->DD_buffer_bytes/1024./1024.);
+    
+      double t_init_sec = (timeInMS() - start_ms)*.001;
+      printf("Init Elapsed time: %.2f sec\n",t_init_sec);
+      start_ms = timeInMS();
+      
+      for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+      
+        dfdt_min_nom =  drift_block*df_sg/dt_sg; // desired DD minimum frequency rate Hz/sec (input)
+        dfdt_max_nom =  (drift_block+1)*df_sg/dt_sg; // desired DD maximum frequency rate Hz/sec (input)
+        
+        gen_fastDD_metadata(DD_meta,f_sg_min,df_sg,Nf_sg,dt_sg,Nt_sg,dfdt_min_nom,dfdt_max_nom,Lf,Nt,N0);
+      
+        //print_fastDD_metadata(DD_meta);   
+        
+        /* run fastDD De-Doppler algorithm */
+
+        det_DD = fastDD_cpu(input.sg_data,det_DD_work,DD_meta);
+        
+        //printf("drift_block %d, fast_DD complete\n",drift_block);
+
+        /* find De-Doppler peaks in current drift block */
+        
+        findTopPathSums_cpu(det_DD,DD_meta->Nr,num_channels,
+                            drift_block, cpu_top_path_sums,
+                            cpu_top_drift_blocks,cpu_top_path_offsets);
+      
+      }
+      double t_DD_sec = (timeInMS() - start_ms)*.001;
+      printf("fastDD CPU Elapsed time: %.2f sec\n",t_DD_sec);
+
+      /* find column sums in spectrogram */
+      start_ms = timeInMS();
+      sumColumns_cpu(input.sg_data, cpu_column_sums, num_timesteps, num_channels);
+
+      double t_sumcols_sec = (timeInMS() - start_ms)*.001;
+      printf("Sum Columns Elapsed time: %.2f sec\n",t_sumcols_sec);
+
+      free(det_DD_work[0]);
+      free(det_DD_work[1]);
+    #endif  // fastDD GPU or CPU
+  #endif // TaylorDD or fastDD
+
   /*
   ** Run special test averaging increasing durations, verify non-coh gain
   */

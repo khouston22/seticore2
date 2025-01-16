@@ -77,6 +77,8 @@ srcs = [
     'upchannelizer.cu',
     'util.cpp',
     'detection_fns.cu',
+    'fastDD_cpu_fns.cu',
+    'fastDD_gpu_fns.cu',
 ]
 
 tests = [
@@ -151,6 +153,12 @@ executable('stampls',
 
 executable('taylor_benchmark',
            ['taylor_benchmark.cu'],
+           dependencies: deps,
+           link_with: libseticore,
+           cuda_args: cuda_args)
+
+executable('fastDD_benchmark',
+           ['fastDD_benchmark.cu'],
            dependencies: deps,
            link_with: libseticore,
            cuda_args: cuda_args)
