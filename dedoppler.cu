@@ -16,7 +16,7 @@
 #include "detection_fns.h"
 
 # define DO_TAYLOR 0            // =1 Taylor =0 FastDD
-# define DO_FASTDD_GPU 1        // =1 fastDD GPU, =0 fastDD CPU
+# define DO_FASTDD_GPU 0        // =1 fastDD GPU, =0 fastDD CPU
 # define FASTDD_N0 8            // fastDD first stage number of time steps
 
 /*
