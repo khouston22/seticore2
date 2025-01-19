@@ -354,7 +354,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // First we break up the data into a set of nonoverlapping
   // windows. Any candidate hit must be the largest within this
   // window.
-  int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
+  //int window_size = 2 * ceil(normalized_max_drift * drift_timesteps); // original value
+  // May want to specify the window size in Hz
+  int window_size = ceil(0.5 * normalized_max_drift * drift_timesteps);
 
   if (coarse_channel==0) {
     printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
@@ -408,7 +410,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = (candidate_path_sum - local_mean) / std_dev;
 
-      if (abs(drift_rate) >= min_drift) {
+      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
                          snr, beam, coarse_channel, num_timesteps, candidate_path_sum);
         if (print_hits) {
