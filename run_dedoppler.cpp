@@ -54,5 +54,6 @@ void runDedoppler(const string& input_filename, const string& output_filename,
     for (DedopplerHit hit : hits) {        
       recorder->recordHit(hit, buffer.sg_data);
     }
+    std::cout << "\n";
   }
 }
