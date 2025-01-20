@@ -588,7 +588,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = (candidate_path_sum - local_mean) / std_dev;
 
-      if (abs(drift_rate) >= min_drift) {
+      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
                          snr, beam, coarse_channel, num_timesteps, candidate_path_sum);
         if (print_hits) {
