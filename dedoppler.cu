@@ -99,19 +99,11 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
     cudaMalloc(&buffer2, num_channels * rounded_num_timesteps * sizeof(float));
     checkCuda("Dedopplerer buffer2 malloc");
 
-  #else  // fastDD, one drift block at a time, Lf = Lr = 1, N0 a power of 2
-
-    drift_timesteps = rounded_num_timesteps;
+  #else  // fastDD
+    // leave buffer1 buffer2 allocation to within search
   
-    // Allocate everything we need for GPU processing
-    // buffer1 & buffer2 for fastDD are slightly larger by (N0+1)/N0 factor
-    cudaMalloc(&buffer1, (num_channels * rounded_num_timesteps * sizeof(float))/FASTDD_N0 * (FASTDD_N0+1));
-    checkCuda("Dedopplerer buffer1 malloc");
-
-    cudaMalloc(&buffer2, (num_channels * rounded_num_timesteps * sizeof(float))/FASTDD_N0 * (FASTDD_N0+1));
-    checkCuda("Dedopplerer buffer2 malloc");
-      
-   #endif
+    drift_timesteps = rounded_num_timesteps;
+  #endif
 
   drift_rate_resolution = 1e6 * foff / (drift_timesteps * tsamp);
 
@@ -133,8 +125,10 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
 }
 
 Dedopplerer::~Dedopplerer() {
-  cudaFree(buffer1);
-  cudaFree(buffer2);
+  #if DO_TAYLOR
+    cudaFree(buffer1);
+    cudaFree(buffer2);
+  #endif
   cudaFree(gpu_column_sums);
   cudaFreeHost(cpu_column_sums);
   cudaFree(gpu_top_path_sums);
@@ -172,6 +166,8 @@ void Dedopplerer::addIncoherentPower(const FilterbankBuffer& input,
 
   // A pointer for the currently-analyzed drift block
   const float* taylor_sums = nullptr;
+
+  // Note: fastDD has not been implemented here
 
   for (DedopplerHit& hit : hits) {
     // Figure out what drift block this hit belongs to
@@ -307,23 +303,34 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     int N0 = MIN(FASTDD_N0,num_timesteps);  // first stage number of time samples   
     
     double dfdt_min_nom,dfdt_max_nom;
+    uint max_DD_buffer_bytes = 0;
     
-    /* Check all metadata for all drift blocks to be sure to allocate correct buffer sizes */
+    /* Check all metadata for all drift blocks to be sure to allocate sufficient buffer sizes */
 
     for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
       dfdt_min_nom =  drift_block*df_sg/dt_sg; // desired DD minimum frequency rate Hz/sec (input)
       dfdt_max_nom =  (drift_block+1)*df_sg/dt_sg; // desired DD maximum frequency rate Hz/sec (input)
       gen_fastDD_metadata(DD_meta,f_sg_min,df_sg,Nf_sg,dt_sg,Nt_sg,dfdt_min_nom,dfdt_max_nom,Lf,Nt,N0);
-      // max_DD_buffer_bytes = MAX(DD_meta->DD_buffer_bytes,max_DD_buffer_bytes);
+      max_DD_buffer_bytes = MAX(DD_meta->DD_buffer_bytes,max_DD_buffer_bytes);
       //print_fastDD_metadata(DD_meta);
     }
     drift_rate_resolution = DD_meta->d_dfdt;
 
+    printf("\n*** fastDD Buffer 1 2 bytes requirement: %u\n",max_DD_buffer_bytes);
+    
     #if DO_FASTDD_GPU 
 
       float *gpu_det_DD;
       float *det_DD_work[2];
 
+      // Allocatate buffers if first pass - sizing computed within gen_fastDD_metadata()
+      // buffer1 & buffer2 for fastDD are slightly larger than SGs by a small factor
+      
+      cudaMalloc(&buffer1, max_DD_buffer_bytes);
+      checkCuda("Dedopplerer fastDD buffer1 malloc");
+      cudaMalloc(&buffer2, max_DD_buffer_bytes);
+      checkCuda("Dedopplerer fastDD buffer2 malloc");
+    
       if (!input.managed) {
         // do explicit cpu to gpu copy for unmanaged sg buffers
         cudaMemcpy(input.d_sg_data,input.sg_data,input.bytes,cudaMemcpyHostToDevice);
@@ -357,8 +364,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
         gpu_det_DD = fastDD_gpu(input.d_sg_data,det_DD_work,DD_meta);
       
-        //cudaDeviceSynchronize();
-        //checkCuda("fastDD_gpu_return");
+        // cudaDeviceSynchronize();
+        // checkCuda("fastDD_gpu_return");
 
         // Track the best sums
         findTopPathSums2<<<grid_size, CUDA_MAX_THREADS>>>(gpu_det_DD, DD_meta->Nr,
@@ -387,22 +394,21 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       double t_DD_sec = (timeInMS() - start_ms)*.001;
       printf("fastDD GPU Elapsed time: %.2f sec\n",t_DD_sec);
 
-      // cudaFree(d_sg);
-      // cudaFree(buffer1);
-      // cudaFree(buffer2);
+      cudaFree(buffer1);
+      cudaFree(buffer2);
 
     #else   // run fastDD_cpu
     
       float *det_DD;
       float *det_DD_work[2];
 
-      det_DD_work[0] = (float *) malloc(DD_meta->DD_buffer_bytes);
-      det_DD_work[1] = (float *) malloc(DD_meta->DD_buffer_bytes);
+      det_DD_work[0] = (float *) malloc(max_DD_buffer_bytes);
+      det_DD_work[1] = (float *) malloc(max_DD_buffer_bytes);
       
       zeroTopPathSums_cpu(num_channels,cpu_top_path_sums,
                             cpu_top_drift_blocks,cpu_top_path_offsets);
       
-      printf("\nTwo det_DD_work arrays allocated, each %.0f MBytes\n",DD_meta->DD_buffer_bytes/1024./1024.);
+      printf("\nTwo det_DD_work arrays allocated, each %.0f MBytes\n",max_DD_buffer_bytes/1024./1024.);
     
       double t_init_sec = (timeInMS() - start_ms)*.001;
       printf("Init Elapsed time: %.2f sec\n",t_init_sec);
