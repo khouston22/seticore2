@@ -282,22 +282,25 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   start_ms = timeInMS();
 
-  #if 1
-    // remove DC bins
-    cpu_column_sums[mid-3]=0.;
-    cpu_column_sums[mid-2]=0.;
-    cpu_column_sums[mid-1]=0.;
-    cpu_column_sums[mid]=0.;
-    cpu_column_sums[mid+1]=0.;
-    cpu_column_sums[mid+2]=0.;
-    cpu_column_sums[mid+3]=0.;
-  #endif
-
   // normalize by number of averages
   for (int freq=0; freq<num_channels; freq++){
     cpu_column_sums[freq] *= xf;
     cpu_top_path_sums[freq] *= xf;
   }
+
+  #if 0
+    printf("Column sums: DC vicinity:");
+    print_x_lr(&cpu_column_sums[mid],100,1.0);
+  #endif
+ 
+  #if DC_REPLACE_ENABLE
+    DC_replace(&cpu_column_sums[mid], DC_REPLACE_OFS, DC_MEAN_PTS);
+  #endif
+
+  #if 0
+    printf("Column sums: DC vicinity after replacement:");
+    print_x_lr(&cpu_column_sums[mid],100,1.0);
+  #endif
 
   int n_subband = N_SUBBAND;
   int Nf_subband = num_channels/n_subband;
@@ -409,6 +412,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         cpu_top_path_offsets[candidate_freq];
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = (candidate_path_sum - local_mean) / std_dev;
+      // float snr = candidate_path_sum/1e3;
+      // float snr = local_mean/10;
+      // float snr = std_dev/10;
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
