@@ -208,8 +208,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   int mid = num_channels / 2;
 
-  printf("\ncoarse channel %d, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
-          coarse_channel,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
+  printf("\ncoarse channel %d, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
+          coarse_channel,num_channels/1024.,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
 
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
@@ -315,7 +315,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float subband_m_std_ratio[N_SUBBAND_MAX];
   float *work;
   work = (float *) malloc(Nf_subband*sizeof(float));
-  printf("\nNf=%d,n_subband=%d, Nf_subband=%d:\n",num_channels,n_subband,Nf_subband);
+  printf("\nFFT-size=%.0fK, n_subband=%d, Nf_subband=%d => %.0f Hz/subband:\n",num_channels/1024.,n_subband,
+        Nf_subband,Nf_subband*fs);
 
   if (n_subband==1){
     calc_mean_std_dev(cpu_column_sums,num_channels,&subband_mean[0],&subband_std[0]);
@@ -357,9 +358,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // First we break up the data into a set of nonoverlapping
   // windows. Any candidate hit must be the largest within this
   // window.
-  //int window_size = 2 * ceil(normalized_max_drift * drift_timesteps); // original value
-  // May want to specify the window size in Hz
-  int window_size = ceil(0.5 * normalized_max_drift * drift_timesteps);
+  int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if (coarse_channel==0) {
     printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
@@ -370,7 +369,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
             max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
     printf("Overall Coarse Channel mean=%6.0f std_dev=%6.0f mean/std=%6.3f vs %6.3f\n\n",
             m,std_dev,m/std_dev,sqrt(2*n_avg));
-    }
+  }
 
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
@@ -412,6 +411,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         cpu_top_path_offsets[candidate_freq];
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = (candidate_path_sum - local_mean) / std_dev;
+
+      // Hack: to look at snr components for detections using test files, just set them to snr
       // float snr = candidate_path_sum/1e3;
       // float snr = local_mean/10;
       // float snr = std_dev/10;
