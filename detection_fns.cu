@@ -13,10 +13,10 @@ void calc_subband_mean_std(const float* x_sg, int Nf, int n_subband, bool do_lim
       for (int i=0;i<Nf_subband; i++) {
         work[i] = MIN(x_sg[i_ofs+i],limit_value);
       }
-      calc_mean_std_dev2(work, Nf_subband, &subband_mean[i_band], &subband_std[i_band]);
+      calc_mean_std_dev(work, Nf_subband, &subband_mean[i_band], &subband_std[i_band]);
     } else {
       // do not apply shear operation
-      calc_mean_std_dev2(&x_sg[i_ofs], Nf_subband, &subband_mean[i_band], &subband_std[i_band]);
+      calc_mean_std_dev(&x_sg[i_ofs], Nf_subband, &subband_mean[i_band], &subband_std[i_band]);
     }
   }
 }
@@ -176,4 +176,50 @@ for (int i = 0; i < n; i++) {
   *mean = sum_x/n;
   *std_dev = sqrt((sum_x2 - n*(*mean)*(*mean))/(n-1));
 }
+
+void DC_replace(float* x, int DC_replace_ofs, int DC_mean_pts) 
+{
+    // remove DC bins - replace by adjacent mean
+    // x is part of a vector of PSD values pointing to DC (mid) point
+    // call: DC_replace(&x[mid],DC_replace_ofs,DC_mean_pts);
+
+    float adj_mean = 0.;
+    for (int i_ofs=-DC_replace_ofs-DC_mean_pts; i_ofs<-DC_replace_ofs; i_ofs++) {
+      adj_mean += x[i_ofs];
+    }
+
+    for (int i_ofs=DC_replace_ofs+1; i_ofs<=DC_replace_ofs+DC_mean_pts; i_ofs++) {
+      adj_mean += x[i_ofs];
+    }
+
+    adj_mean /= (2*DC_mean_pts);
+
+    for (int i_ofs=-DC_replace_ofs; i_ofs<=DC_replace_ofs; i_ofs++) {
+      x[i_ofs]=adj_mean;
+    }
+} 
+
+void print_x_lr(float* x, int max_ofs, float scale) 
+{
+  // view part of vector from both sides (left and right of center)
+  // call: print_x_lr(&x[center],max_ofs,scale);
+    
+  for (int i_ofs=-max_ofs; i_ofs<max_ofs; i_ofs++) {
+    if (i_ofs%10==0) printf("\n%6d   ",i_ofs);
+    printf("%8.0f ",x[i_ofs]*scale);
+  }
+  printf("\n");
+} 
+
+void print_x_segment(float* x, int n_pts, float scale) 
+{
+  // view vector segment
+  // call: print_x_segment(&x[start],n_pts,scale);
+    
+  for (int i_ofs=0; i_ofs<n_pts; i_ofs++) {
+    if (i_ofs%10==0) printf("\n%6d   ",i_ofs);
+    printf("%8.0f ",x[i_ofs]*scale);
+  }
+  printf("\n");
+} 
 
