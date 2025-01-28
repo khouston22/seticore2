@@ -225,8 +225,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   int mid = num_channels / 2;
 
-  printf("\ncoarse channel %d, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
-          coarse_channel,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
+  printf("\ncoarse channel %d, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
+          coarse_channel,num_channels/1024.,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
 
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
@@ -468,24 +468,27 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   start_ms = timeInMS();
 
-  #if 1
-    // remove DC bins
-    cpu_column_sums[mid-3]=0.;
-    cpu_column_sums[mid-2]=0.;
-    cpu_column_sums[mid-1]=0.;
-    cpu_column_sums[mid]=0.;
-    cpu_column_sums[mid+1]=0.;
-    cpu_column_sums[mid+2]=0.;
-    cpu_column_sums[mid+3]=0.;
-  #endif
-
   // normalize by number of averages
   for (int freq=0; freq<num_channels; freq++){
     cpu_column_sums[freq] *= xf;
     cpu_top_path_sums[freq] *= xf;
   }
 
-  int n_subband = N_SUBBAND;
+  #if 0
+    printf("Column sums: DC vicinity:");
+    print_x_lr(&cpu_column_sums[mid],100,1.0);
+  #endif
+ 
+  #if DC_REPLACE_ENABLE
+    DC_replace(&cpu_column_sums[mid], DC_REPLACE_OFS, DC_MEAN_PTS);
+  #endif
+
+  #if 0
+    printf("Column sums: DC vicinity after replacement:");
+    print_x_lr(&cpu_column_sums[mid],100,1.0);
+  #endif
+
+   int n_subband = N_SUBBAND;
   int Nf_subband = num_channels/n_subband;
   if (Nf_subband<NF_SUBBAND_MIN) {
     n_subband = MAX(1,num_channels/NF_SUBBAND_MIN);
@@ -498,7 +501,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float subband_m_std_ratio[N_SUBBAND_MAX];
   float *work;
   work = (float *) malloc(Nf_subband*sizeof(float));
-  printf("\nNf=%d,n_subband=%d, Nf_subband=%d:\n",num_channels,n_subband,Nf_subband);
+  printf("\nFFT-size=%.0fK, n_subband=%d, Nf_subband=%d => %.0f Hz/subband:\n",num_channels/1024.,n_subband,
+        Nf_subband,Nf_subband*fs);
 
   if (n_subband==1){
     calc_mean_std_dev(cpu_column_sums,num_channels,&subband_mean[0],&subband_std[0]);
@@ -551,7 +555,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
             max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
     printf("Overall Coarse Channel mean=%6.0f std_dev=%6.0f mean/std=%6.3f vs %6.3f\n\n",
             m,std_dev,m/std_dev,sqrt(2*n_avg));
-    }
+  }
 
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
@@ -593,6 +597,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         cpu_top_path_offsets[candidate_freq];
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = (candidate_path_sum - local_mean) / std_dev;
+
+      // Hack: to look at snr components for detections using test files, just set them to snr
+      // float snr = candidate_path_sum/1e3;
+      // float snr = local_mean/10;
+      // float snr = std_dev/10;
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
