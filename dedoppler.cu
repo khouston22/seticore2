@@ -358,9 +358,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // First we break up the data into a set of nonoverlapping
   // windows. Any candidate hit must be the largest within this
   // window.
-  // int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
-  // might be useful to specify window size from command line
-  int window_size = 1 * ceil(normalized_max_drift * drift_timesteps);
+  int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if (coarse_channel==0) {
     printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
