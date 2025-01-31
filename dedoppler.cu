@@ -358,7 +358,14 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // First we break up the data into a set of nonoverlapping
   // windows. Any candidate hit must be the largest within this
   // window.
+  // Original seticore:
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
+  // Minimum window size to avoid extra spurious detections on single drifting tone:
+  // int window_size = 1 * ceil(normalized_max_drift * drift_timesteps);
+  // Will be proportional to max drift rate and total averaging time
+  // Will also determine allowable spacing between adjacent hits
+  // May want to set window size in Hz at the command line depending on RFI environment
+  // to avoid multiple hits on same RFI signal
 
   if (coarse_channel==0) {
     printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
