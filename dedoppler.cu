@@ -358,7 +358,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // First we break up the data into a set of nonoverlapping
   // windows. Any candidate hit must be the largest within this
   // window.
-  // Original seticore:
+  // Original seticore 1.0.6:
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
   // Minimum window size to avoid extra spurious detections on single drifting tone:
   // int window_size = 1 * ceil(normalized_max_drift * drift_timesteps);
