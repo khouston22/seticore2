@@ -7,9 +7,12 @@ project('seticore', ['cpp', 'c', 'cuda'],
 
 basic_cuda_args = [ '--std=c++14' ]
 newer_cuda_args = [ '--display-error-number',
-		            '--gpu-architecture=compute_86',
-		            '--gpu-code=sm_86',
+		            '-arch=native',
                     '--diag-suppress=1675' ]
+# newer_cuda_args = [ '--display-error-number',
+#		            '--gpu-architecture=compute_86',
+#		            '--gpu-code=sm_86',
+#                    '--diag-suppress=1675' ]
 
 nvcc_release = run_command('./nvcc_release.sh', check: true).stdout().strip()
 if nvcc_release <= '11.0'
