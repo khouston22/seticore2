@@ -48,6 +48,7 @@ deps = [fmt_dep, boost_dep, hdf5_dep, cuda_dep, kj_dep, capnp_dep]
 srcs = [
     'beamformer.cu',
     'beamforming_pipeline.cpp',
+    'boxcar_sum_fns.cu',
     'complex_buffer.cu',
     'cuda_util.cu',
     'dedoppler.cu',
@@ -154,6 +155,12 @@ executable('stampls',
 
 executable('taylor_benchmark',
            ['taylor_benchmark.cu'],
+           dependencies: deps,
+           link_with: libseticore,
+           cuda_args: cuda_args)
+
+executable('boxcar_test',
+           ['boxcar_test.cu'],
            dependencies: deps,
            link_with: libseticore,
            cuda_args: cuda_args)
