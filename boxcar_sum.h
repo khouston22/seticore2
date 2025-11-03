@@ -31,7 +31,7 @@ void gen_boxcar_sum_cpu(float *p2_path_sums,  // input: power of 2 sums array [l
                         int log2_max_p2,      // log2 of the maximum power of 2 to be calculated
                         int n_zp);            // #zeros padded before and after n_freq spectrum points
 
-void print_Nbox_segment(float* x, int n_pts, float scale);
+void print_Nbox_segment(float* x, int n_pts, int start_offset, float scale);
 
 void gen_boxcar_p2_sums_gpu(float *gpu_DD_sums_line, // input: DD sum for single drift value [n_freq]
                             float *gpu_p2_path_sums, // output: power of 2 sums array [log2_max_p2+1]*[n_freq+2*n_zp] 

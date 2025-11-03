@@ -6,14 +6,14 @@
 
 void gen_boxcar_p2_sums_cpu(float *DD_sums_line, // input: DD sum for single drift value [n_freq]
                             float *p2_path_sums, // output: power of 2 sums array [log2_max_p2+1]*[n_freq+2*n_zp] 
-                            int n_freq,          // number of frequency points in path_sum_line vector
+                            int n_freq,          // number of frequency points in DD_sums_line vector
                             int log2_max_p2,     // log2 of the maximum power of 2 to be calculated
                             int n_zp)            // #zeros padded before and after n_freq spectrum points
 
 {
   // The input is a single row of the DD_sums array corresponding to a single drift value
   // in a drift block, which is indexed by path_offset
-  // path_sum_line[0..n_freq-1] =  taylor_sums[path_offset][0..n_freq-1]
+  // DD_sums_line[0..n_freq-1] =  taylor_sums[path_offset][0..n_freq-1]
   //
   // This function generates boxcar sum vectors for boxcar widths (Nbox) with power of 2 values,
   // so a boxcar (moving average) filter is computed for each power of 2. 
@@ -29,7 +29,7 @@ void gen_boxcar_p2_sums_cpu(float *DD_sums_line, // input: DD sum for single dri
   // e.g. for log2_max_p2=5 and Nbox_p2_max = 32, we can compute up to Nbox_max = 63
   // 
   // The boxcar sum for a given Nbox = 2^i_Nbox is computed as
-  // p2_path_sums[i_Nbox][n] = sum(path_sum_line[n+m]) for m=0 to Nbox-1
+  // p2_path_sums[i_Nbox][n] = sum(DD_sums_line[n+m]) for m=0 to Nbox-1
   // over i_Nbox = 0 to log2_max_p2
   // 
   // This function will be called once for every drift value in a drift block
@@ -170,12 +170,11 @@ void gen_boxcar_sum_cpu(float *p2_path_sums,  // input: power of 2 sums array [l
 }
 
 
-void print_Nbox_segment(float* x, int n_pts, float scale) 
+void print_Nbox_segment(float* x, int n_pts, int start_offset, float scale) 
 {
   // view vector segment
-  // call: print_Nbox_segment(&x[start],n_pts,scale);
     
-  for (int i_ofs=0; i_ofs<n_pts; i_ofs++) {
+  for (int i_ofs=start_offset; i_ofs<start_offset+n_pts; i_ofs++) {
     if (i_ofs%10==0) printf("\n%6d   ",i_ofs);
     printf("%8.0f ",x[i_ofs]*scale);
   }
@@ -186,14 +185,14 @@ void print_Nbox_segment(float* x, int n_pts, float scale)
 
 void gen_boxcar_p2_sums_gpu(float *gpu_DD_sums_line, // input: DD sum for single drift value [n_freq]
                             float *gpu_p2_path_sums, // output: power of 2 sums array [log2_max_p2+1]*[n_freq+2*n_zp] 
-                            int n_freq,              // number of frequency points in path_sum_line vector
+                            int n_freq,              // number of frequency points in DD_sums_line vector
                             int log2_max_p2,         // log2 of the maximum power of 2 to be calculated
                             int n_zp)                // #zeros padded before and after n_freq spectrum points
 
 {
   // The input is a single row of the DD_sums array corresponding to a single drift value
   // in a drift block, which is indexed by path_offset
-  // path_sum_line[0..n_freq-1] =  taylor_sums[path_offset][0..n_freq-1]
+  // DD_sums_line[0..n_freq-1] =  taylor_sums[path_offset][0..n_freq-1]
   //
   // This function generates boxcar sum vectors for boxcar widths (Nbox) with power of 2 values,
   // so a boxcar (moving average) filter is computed for each power of 2. 
@@ -209,7 +208,7 @@ void gen_boxcar_p2_sums_gpu(float *gpu_DD_sums_line, // input: DD sum for single
   // e.g. for log2_max_p2=5 and Nbox_p2_max = 32, we can compute up to Nbox_max = 63
   // 
   // The boxcar sum for a given Nbox = 2^i_Nbox is computed as
-  // p2_path_sums[i_Nbox][n] = sum(path_sum_line[n+m]) for m=0 to Nbox-1
+  // p2_path_sums[i_Nbox][n] = sum(DD_sums_line[n+m]) for m=0 to Nbox-1
   // over i_Nbox = 0 to log2_max_p2
   // 
   // This function will be called once for every drift value in a drift block
@@ -369,7 +368,7 @@ void gen_boxcar_sum_gpu(float *gpu_p2_path_sums,  // input: power of 2 sums arra
   }
 
   /* shift and scale by 1/Nbox */
-  
+
   int shift = Nbox/2;  // zero freq offset if Nbox odd, half bin if Nbox even
   float scale = 1./Nbox;
 
