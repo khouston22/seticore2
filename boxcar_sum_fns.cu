@@ -169,6 +169,54 @@ void gen_boxcar_sum_cpu(float *p2_path_sums,  // input: power of 2 sums array [l
   return;
 }
 
+int gen_Nbox_list1(int* Nbox_list, int drift_block, int max_Nbox_bw) 
+{
+  // generate list of boxcar average Nbox values to evaluate
+
+  int Nbox_drift;
+  int n_Nbox;
+  
+  // First item is just based on the drift block
+
+  if (drift_block >= 0) {
+    Nbox_drift = drift_block + 1;
+  } else {
+    Nbox_drift = -drift_block;
+  }
+  
+  Nbox_list[0] = Nbox_drift;
+  n_Nbox = 1;
+
+  // Remaining items are powers of 2 beyond 1.5*Nbox_drift (if applicable)
+
+  float min_Nbox_bw = 1.5*Nbox_drift;
+    
+  if (max_Nbox_bw > min_Nbox_bw) {
+    int n_Nbox_bw = (int) floor(log2(MAX(1,max_Nbox_bw)));
+    
+    int i_bw_min = (int) ceil(log2(min_Nbox_bw));
+    if (n_Nbox_bw>=i_bw_min) {
+      n_Nbox = n_Nbox_bw - i_bw_min + 2;
+
+      for (int i_bw=i_bw_min; i_bw<=n_Nbox_bw; i_bw++) {
+        Nbox_list[i_bw - i_bw_min + 1] = 1 << i_bw; // 2^i_bw
+      }
+    }
+  }
+  
+  return n_Nbox;
+} 
+
+void print_Nbox_list(int* Nbox_list, int n_Nbox, int drift_block) 
+{
+  // view list for current drift_block index
+    
+  printf("drift_block=%d, n_Nbox=%d, Nbox = ",drift_block,n_Nbox);
+  for (int i_Nbox=0; i_Nbox<n_Nbox; i_Nbox++) printf("%d ",Nbox_list[i_Nbox]);
+  printf("\n");
+
+  return;
+}
 
 void print_Nbox_segment(float* x, int n_pts, int start_offset, float scale) 
 {

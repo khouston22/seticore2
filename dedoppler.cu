@@ -12,6 +12,9 @@
 #include "taylor.h"
 #include "util.h"
 
+#define LOG2_MAX_NBOX_P2 (6)  // determines maximum memory reqts for boxcar averaging of DD sums
+#include "boxcar_sum.h"
+
 #include "detection_fns.h"
 
 /*
@@ -19,9 +22,10 @@
 
   The eventual goal is for every frequency freq, we want:
 
-  top_path_sums[freq] to contain the largest path sum that starts at freq
+  top_path_snrs[freq] to contain the largest path snr that starts at freq
   top_drift_blocks[freq] to contain the drift block of that path
   top_path_offsets[freq] to contain the path offset of that path
+  top_path_Nbox[freq] to contain the value of Nbox that path
 
   path_sums[path_offset][freq] contains one path sum.
   (In row-major order.)
@@ -31,13 +35,19 @@
   The function ignores data corresponding to invalid paths. See
   comments in taylor.cu for details.
 */
-__global__ void findTopPathSums(const float* path_sums, int num_timesteps, int num_freqs,
-                                int drift_block, float* top_path_sums,
-                                int* top_drift_blocks, int* top_path_offsets) {
+
+__global__ void findTopPathSNRs(const float* path_sums, int num_timesteps, int num_freqs,
+                                int drift_block, float mu, float* sigma_scale, int Nbox,
+                                float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
+                                int* top_path_Nbox) {
+
   int freq = blockIdx.x * blockDim.x + threadIdx.x;
   if (freq < 0 || freq >= num_freqs) {
     return;
   }
+  // mu is nominal mean after equalization across band 
+  // sigma_scale[freq] = sqrt(Nbox)/sigma[freq] typically
+  float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
 
   for (int path_offset = 0; path_offset < num_timesteps; ++path_offset) {
     // Check if the last frequency in this path is out of bounds
@@ -47,21 +57,86 @@ __global__ void findTopPathSums(const float* path_sums, int num_timesteps, int n
       return;
     }
 
-    float path_sum = path_sums[num_freqs * path_offset + freq];
-    if (path_sum > top_path_sums[freq]) {
-      top_path_sums[freq] = path_sum;
+    float path_snr = (path_sums[num_freqs * path_offset + freq]*path_scale - mu)*sigma_scale[freq];
+    if (path_snr > top_path_snrs[freq]) {
+      top_path_snrs[freq] = path_snr;
       top_drift_blocks[freq] = drift_block;
       top_path_offsets[freq] = path_offset;
+      top_path_Nbox[freq] = Nbox;
     }
   }
 }
+
+__global__ void findTopPathSNRs0(const float* path_sums, int num_timesteps, int num_freqs,
+                                int drift_block, float mu, float sigma_scale, int Nbox,
+                                float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
+                                int* top_path_Nbox) {
+
+  int freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (freq < 0 || freq >= num_freqs) {
+    return;
+  }
+  // mu is nominal mean after equalization across band 
+  // sigma_scale = sqrt(Nbox)/sigma typically
+  float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
+
+  for (int path_offset = 0; path_offset < num_timesteps; ++path_offset) {
+    // Check if the last frequency in this path is out of bounds
+    int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
+    if (last_freq < 0 || last_freq >= num_freqs) {
+      // No more of these paths can be valid, either
+      return;
+    }
+
+    float path_snr = (path_sums[num_freqs * path_offset + freq]*path_scale - mu)*sigma_scale;
+    if (path_snr > top_path_snrs[freq]) {
+      top_path_snrs[freq] = path_snr;
+      top_drift_blocks[freq] = drift_block;
+      top_path_offsets[freq] = path_offset;
+      top_path_Nbox[freq] = Nbox;
+    }
+  }
+}
+
+__global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_timesteps, int num_freqs,
+                                int path_offset, int drift_block, float mu, float* sigma_scale, int Nbox,
+                                float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
+                                int* top_path_Nbox) {
+
+  int freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (freq < 0 || freq >= num_freqs) {
+    return;
+  }
+  // examines single time step (single line) of DD output after boxcar filtering
+  // and updates peak snr for each frequency
+  // mu is nominal mean after equalization across band 
+  // sigma_scale[freq] = sqrt(Nbox)/sigma[freq] typically
+  float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
+
+  // Check if the last frequency in this path is out of bounds
+  int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
+  if (last_freq < 0 || last_freq >= num_freqs) {
+    // No more of these paths can be valid, either
+    return;
+  }
+
+  float path_snr = (path_sums_line[freq]*path_scale - mu)*sigma_scale[freq];
+  if (path_snr > top_path_snrs[freq]) {
+    top_path_snrs[freq] = path_snr;
+    top_drift_blocks[freq] = drift_block;
+    top_path_offsets[freq] = path_offset;
+    top_path_Nbox[freq] = Nbox;
+  }
+}
+
 
 /*
   Sum the columns of a two-dimensional array.
   input is a (num_timesteps x num_freqs) array, stored in row-major order.
   sums is an array of size num_freqs.
  */
-__global__ void sumColumns(const float* input, float* sums, int num_timesteps, int num_freqs) {
+__global__ void sumColumns(const float* input, float* sums, int num_timesteps, int num_freqs,
+                            float scale) {
   int freq = blockIdx.x * blockDim.x + threadIdx.x;
   if (freq < 0 || freq >= num_freqs) {
     return;
@@ -70,6 +145,7 @@ __global__ void sumColumns(const float* input, float* sums, int num_timesteps, i
   for (int i = freq; i < num_timesteps * num_freqs; i += num_freqs) {
     sums[freq] += input[i];
   }
+  sums[freq] *= scale;
 }
 
 
@@ -98,9 +174,9 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
   cudaMallocHost(&cpu_column_sums, num_channels * sizeof(float));
   checkCuda("Dedopplerer column_sums malloc");
   
-  cudaMalloc(&gpu_top_path_sums, num_channels * sizeof(float));
-  cudaMallocHost(&cpu_top_path_sums, num_channels * sizeof(float));
-  checkCuda("Dedopplerer top_path_sums malloc");
+  cudaMalloc(&gpu_top_path_snrs, num_channels * sizeof(float));
+  cudaMallocHost(&cpu_top_path_snrs, num_channels * sizeof(float));
+  checkCuda("Dedopplerer top_path_snrs malloc");
    
   cudaMalloc(&gpu_top_drift_blocks, num_channels * sizeof(int));
   cudaMallocHost(&cpu_top_drift_blocks, num_channels * sizeof(int));
@@ -109,6 +185,32 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
   cudaMalloc(&gpu_top_path_offsets, num_channels * sizeof(int));
   cudaMallocHost(&cpu_top_path_offsets, num_channels * sizeof(int));
   checkCuda("Dedopplerer top_path_offsets malloc");
+
+  cudaMalloc(&gpu_top_path_Nbox, num_channels * sizeof(int));
+  cudaMallocHost(&cpu_top_path_Nbox, num_channels * sizeof(int));
+  checkCuda("Dedopplerer top_path_Nbox malloc");
+
+  int num_channels_ext = num_channels + 2*N_ZP;
+  cudaMalloc(&gpu_p2_path_sums, num_channels_ext*N_P2*sizeof(float));
+  checkCuda("p2_path_sums malloc");
+  cudaMalloc(&gpu_boxcar_work, 2*num_channels_ext*sizeof(float));
+  // cudaMallocHost(&cpu_boxcar_work, 2*num_channels_ext*sizeof(float));
+  checkCuda("boxcar work malloc");
+
+  cudaMalloc(&gpu_Nbox_path_sum, num_channels*sizeof(float));
+  checkCuda("gpu_Nbox_path_sum malloc");
+
+  cudaMalloc(&gpu_mu_std_work, 3*num_channels*sizeof(float));
+  cudaMallocHost(&cpu_mu_std_work, 3*num_channels*sizeof(float));
+  checkCuda("mu std work malloc");
+
+  cudaMalloc(&gpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
+  cudaMallocHost(&cpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
+  checkCuda("subband_mean malloc");
+
+  cudaMalloc(&gpu_subband_std, N_SUBBAND_MAX*sizeof(float));
+  cudaMallocHost(&cpu_subband_std, N_SUBBAND_MAX*sizeof(float));
+  checkCuda("subband_std malloc");
 }
 
 Dedopplerer::~Dedopplerer() {
@@ -116,12 +218,28 @@ Dedopplerer::~Dedopplerer() {
   cudaFree(buffer2);
   cudaFree(gpu_column_sums);
   cudaFreeHost(cpu_column_sums);
-  cudaFree(gpu_top_path_sums);
-  cudaFreeHost(cpu_top_path_sums);
+  cudaFree(gpu_top_path_snrs);
+  cudaFreeHost(cpu_top_path_snrs);
   cudaFree(gpu_top_drift_blocks);
   cudaFreeHost(cpu_top_drift_blocks);
   cudaFree(gpu_top_path_offsets);
   cudaFreeHost(cpu_top_path_offsets);
+  cudaFree(gpu_top_path_Nbox);
+  cudaFreeHost(cpu_top_path_Nbox);
+
+  cudaFree(gpu_p2_path_sums);
+  cudaFree(gpu_boxcar_work);
+  // cudaFreeHost(cpu_boxcar_work);
+
+  cudaFree(gpu_Nbox_path_sum);
+  
+  cudaFree(gpu_mu_std_work);
+  cudaFreeHost(cpu_mu_std_work);
+
+  cudaFree(gpu_subband_mean);
+  cudaFreeHost(cpu_subband_mean);
+  cudaFree(gpu_subband_std);
+  cudaFreeHost(cpu_subband_std);
 }
 
 // This implementation is an ugly hack
@@ -204,8 +322,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   n_sti= MAX(1,abs(round(metadata.tsamp*fs)));
   n_lti = num_timesteps;
   n_avg = n_sti*n_lti;
-  float xf = 1./n_avg/2.;
-
+  
   int mid = num_channels / 2;
 
   printf("\ncoarse channel %d, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
@@ -225,68 +342,24 @@ void Dedopplerer::search(const FilterbankBuffer& input,
  
   // Zero out the path sums in between each coarse channel because
   // we pick the top hits separately for each coarse channel
-  cudaMemsetAsync(gpu_top_path_sums, 0, num_channels * sizeof(float));
+  cudaMemsetAsync(gpu_top_path_snrs, 0, num_channels * sizeof(float));
 
+  // cudaDeviceSynchronize();
+  double t_input_copy_sec = (timeInMS() - start_ms)*.001;
+  start_ms = timeInMS();
+
+  float scale = 1./num_timesteps;
+  // float scale = 1.;
   sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
-                                              rounded_num_timesteps, num_channels);
+                                              num_timesteps, num_channels, scale);
   checkCuda("sumColumns");
-
+  cudaMemcpy(cpu_column_sums, gpu_column_sums,
+            num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+  checkCuda("sumColumns d->h memcpy");
+  // cudaDeviceSynchronize();
+  
   double t_sumcols_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
-
-  // Do the Taylor tree algorithm for each drift block
-  for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
-    // Calculate Taylor sums
-    const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
-                                                   rounded_num_timesteps, num_channels,
-                                                   drift_block);
-
-    // Track the best sums
-    findTopPathSums<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
-                                                     num_channels, drift_block,
-                                                     gpu_top_path_sums,
-                                                     gpu_top_drift_blocks,
-                                                     gpu_top_path_offsets);
-    checkCuda("findTopPathSums");
-  }
-
-  // Now that we have done all the GPU processing for one coarse
-  // channel, we can copy the data back to host memory.
-  // These copies are not async, so they will synchronize to the default stream.
-  cudaMemcpy(cpu_column_sums, gpu_column_sums,
-             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_path_sums, gpu_top_path_sums,
-             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_drift_blocks, gpu_top_drift_blocks,
-             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(cpu_top_path_offsets, gpu_top_path_offsets,
-             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
-  checkCuda("dedoppler d->h memcpy");
-  
-  double t_DD_sec = (timeInMS() - start_ms)*.001;
-  
-  /*
-  ** Run special test averaging increasing durations, verify non-coh gain
-  */
-
-  #if 0
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 1);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 8);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 32);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 128);
-  #endif
-
-  /*
-  ** Find detections
-  */
-
-  start_ms = timeInMS();
-
-  // normalize by number of averages
-  for (int freq=0; freq<num_channels; freq++){
-    cpu_column_sums[freq] *= xf;
-    cpu_top_path_sums[freq] *= xf;
-  }
 
   #if 0
     printf("Column sums: DC vicinity:");
@@ -308,48 +381,263 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     n_subband = MAX(1,num_channels/NF_SUBBAND_MIN);
     Nf_subband = num_channels/n_subband;
   }
-  float subband_mean[N_SUBBAND_MAX];
-  float subband_std[N_SUBBAND_MAX];
   float subband_limit[N_SUBBAND_MAX];
-  float subband_det_threshold[N_SUBBAND_MAX];
-  float subband_m_std_ratio[N_SUBBAND_MAX];
-  float *work;
-  work = (float *) malloc(Nf_subband*sizeof(float));
+  float shear_constant = 2.3;
+  float *subband_work;
+  subband_work = (float *) malloc(num_channels*sizeof(float));  // allow for max size for one subband
+
   printf("\nFFT-size=%.0fK, n_subband=%d, Nf_subband=%d => %.0f Hz/subband:\n",num_channels/1024.,n_subband,
         Nf_subband,Nf_subband*fs);
 
-  if (n_subband==1){
-    calc_mean_std_dev(cpu_column_sums,num_channels,&subband_mean[0],&subband_std[0]);
-  } else {
-    float shear_constant = 2.3;
-    multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
-                work,subband_mean,subband_std,subband_limit);
-  }
+  multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
+                subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
+ 
   
-  for (int i_band=0; i_band<n_subband; i_band++){
-    subband_m_std_ratio[i_band] = subband_mean[i_band]/subband_std[i_band];
-    subband_det_threshold[i_band] = subband_mean[i_band] + snr_threshold*subband_std[i_band];
-    if (i_band==0) {
-        printf("subband=%d mean=%.0f std=%.0f mean/std=%.2f vs %.2f, snr_threshold=%.2f, det_thr=%.0f\n",
-        i_band,subband_mean[i_band],subband_std[i_band],subband_m_std_ratio[i_band],sqrt(2*n_avg),
-        snr_threshold,subband_det_threshold[i_band]);
-    }
-  }
-  // examine mean/std ratio mean and std over all subbands
-  // should have low variation (std should be small)
-  float m_std_ratio_mean,m_std_ratio_std;
-  if (n_subband>1) { 
-    calc_mean_std_dev(subband_m_std_ratio,n_subband,&m_std_ratio_mean,&m_std_ratio_std);
-    printf("n_subband=%d m_std_ratio_mean=%.2f vs %.2f m_std_ratio_std=%.2f\n\n",
-          n_subband,m_std_ratio_mean,sqrt(2*n_avg),m_std_ratio_std);
-  }
   
-  float m,std_dev;
-  calc_mean_std_dev(cpu_column_sums, num_channels, &m, &std_dev);
+  float mu,std_dev;
+  multipass_subband_mean_std(cpu_column_sums,num_channels,1,shear_constant,
+                subband_work,&mu,&std_dev,subband_limit);
+  printf("Coarse Channel %d Single Subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
+            coarse_channel,mu,std_dev,mu/std_dev,sqrt(2*n_avg));
+  /*
+  ** Run special test averaging increasing durations, verify non-coh gain
+  */
+
+  #if 0
+    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 1);
+    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 8);
+    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 32);
+    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 128);
+  #endif
+
+  #if 0
+    // if (coarse_channel==0) {
+      printf("n_subband=%d mean values:\n",n_subband);
+      print_x_segment(cpu_subband_mean, n_subband, 1.0);
+      printf("n_subband=%d std  values:\n",n_subband);
+      print_x_segment(cpu_subband_std , n_subband, 1.0);
+    // }
+  #endif
 
   double t_stats_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
+ 
+  /*
+  ** Scale input data in GPU to unit mean
+  */
+
+  cudaMemcpy(gpu_subband_mean,cpu_subband_mean,n_subband*sizeof(float),cudaMemcpyHostToDevice);
+  checkCuda("cudaMemcpy-gpu_subband_mean");
+  float* gpu_mu_vector = &gpu_mu_std_work[0];
+  gpu_subband_interpolate<<<grid_size, CUDA_MAX_THREADS>>>(gpu_mu_vector, 
+                                  num_channels, gpu_subband_mean, n_subband);
+  
+  #if 1
+    if (coarse_channel==0) {
+      float* cpu_mu_vector = &cpu_mu_std_work[0];
+      cudaMemcpy(cpu_mu_vector,gpu_mu_vector,num_channels*sizeof(float),cudaMemcpyDeviceToHost);
+      checkCuda("cudaMemcpy-mu_vector");
+      printf("\nn_subband=%d interpolated mean values:\n",n_subband);
+      print_x_segment_stride(cpu_mu_vector, n_subband, Nf_subband, 1.0);
+    }
+  #endif
+
+
+  for (int i_time=0; i_time < num_timesteps; i_time++) {
+    gpu_local_mean_scale<<<grid_size, CUDA_MAX_THREADS>>>(&input.d_sg_data[i_time*num_channels], 
+                                        gpu_mu_vector, num_channels);
+  }
+
+  float scale2 = 1./num_timesteps;
+  sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
+                                              num_timesteps, num_channels, scale2);
+  checkCuda("sumColumns");
+  cudaMemcpy(cpu_column_sums, gpu_column_sums,
+            num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+  checkCuda("sumColumns d->h memcpy");
+  
+  multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
+              subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
+
+  #if 0
+    // if (coarse_channel==0) {
+      printf("n_subband=%d mean values after scale (x1000):\n",n_subband);
+      print_x_segment(cpu_subband_mean, n_subband, 1000.0);
+      printf("n_subband=%d std  values after scale (x1000):\n",n_subband);
+      print_x_segment(cpu_subband_std , n_subband, 1000.0);
+    // }
+  #endif
+  
+
+  // overall mean & std dev once normalized
+
+  multipass_subband_mean_std(cpu_column_sums,num_channels,1,shear_constant,
+                subband_work,&mu,&std_dev,subband_limit);
+  printf("Coarse Channel %d Multi-subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
+            coarse_channel,mu,std_dev,mu/std_dev,sqrt(2*n_avg));
+
+
+  // generate revised interpolated mu, std, sigma_scale vectors
+
+  cudaMemcpy(gpu_subband_mean,cpu_subband_mean,n_subband*sizeof(float),cudaMemcpyHostToDevice);
+  checkCuda("cudaMemcpy-gpu_subband_mean");
+  cudaMemcpy(gpu_subband_std ,cpu_subband_std ,n_subband*sizeof(float),cudaMemcpyHostToDevice);
+  checkCuda("cudaMemcpy-gpu_subband_mean");
+  gpu_mu_vector = &gpu_mu_std_work[0];
+  gpu_subband_interpolate<<<grid_size, CUDA_MAX_THREADS>>>(gpu_mu_vector, 
+                                  num_channels, gpu_subband_mean, n_subband);
+  float* gpu_std_vector = &gpu_mu_std_work[num_channels];
+  gpu_subband_interpolate<<<grid_size, CUDA_MAX_THREADS>>>(gpu_std_vector, 
+                                  num_channels, gpu_subband_std, n_subband);
+  float* gpu_sigma_scale_vector= &gpu_mu_std_work[2*num_channels];
+  float sqrtNbox = 1.;
+  gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
+                                gpu_std_vector, sqrtNbox, num_channels);
+
+  #if 1
+    if (coarse_channel==0) {
+      float* cpu_mu_vector = &cpu_mu_std_work[0];
+      cudaMemcpy(cpu_mu_vector,gpu_mu_vector,num_channels*sizeof(float),cudaMemcpyDeviceToHost);
+      checkCuda("cudaMemcpy-mu_vector");
+      printf("\nn_subband=%d interpolated mean values (x1000):\n",n_subband);
+      print_x_segment_stride(cpu_mu_vector, n_subband, Nf_subband, 1000.0);
+      float* cpu_std_vector = &cpu_mu_std_work[num_channels];
+      cudaMemcpy(cpu_std_vector,gpu_std_vector,num_channels*sizeof(float),cudaMemcpyDeviceToHost);
+      checkCuda("cudaMemcpy-std_vector");
+      printf("\nn_subband=%d interpolated std values (x1000):\n",n_subband);
+      print_x_segment_stride(cpu_std_vector, n_subband, Nf_subband, 1000.0);
+      float* cpu_sigma_scale_vector = &cpu_mu_std_work[2*num_channels];
+      cudaMemcpy(cpu_sigma_scale_vector,gpu_sigma_scale_vector,num_channels*sizeof(float),cudaMemcpyDeviceToHost);
+      checkCuda("cudaMemcpy-sigma_scale_vector");
+      printf("\nn_subband=%d interpolated sigma_scale values:\n",n_subband);
+      print_x_segment_stride(cpu_sigma_scale_vector, n_subband, Nf_subband, 1.0);
+    }
+  #endif
+
+  double t_scale_sec = (timeInMS() - start_ms)*.001;
+  start_ms = timeInMS();
+
+  /*
+  ** De-Doppler
+  */
+
+  // set up boxcar average parameters
+
+  int log2_max_p2;
+  int n_zp = N_ZP;
+
+  int n_Nbox,Nbox_max;
+
+  int max_Nbox_bw = 1;    // only one Nbox value according to drift block
+  // int max_Nbox_bw = 2; // one Nbox value, except Nbox = 1 and 2 for blocks -1 and 0
+  // int max_Nbox_bw = 32; // many Nbox values, min ~abs(drift_block), up to 32
+  
+  int* Nbox_list = (int *) malloc((LOG2_MAX_NBOX_P2+1)*sizeof(int));
+  max_Nbox_bw = MIN(max_Nbox_bw,NBOX_P2_MAX);
+
+
+  // Do the Taylor tree algorithm for each drift block
+
+  for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+    // Calculate Taylor sums
+    const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
+                                                   rounded_num_timesteps, num_channels,
+                                                   drift_block);
+
+    // Do boxcar filtering for each line of taylor sums and update SNR values
+
+    #define DO_BOXCAR 1
+    #if DO_BOXCAR
+      n_Nbox = gen_Nbox_list1(Nbox_list, drift_block, max_Nbox_bw);
+    #else
+      Nbox_list[0] = 1;
+      n_Nbox = 1;
+    #endif
+
+    Nbox_max = Nbox_list[n_Nbox-1];
+    log2_max_p2 = (int) floor(log2(Nbox_max));
     
+    if ((coarse_channel==0) && (drift_block==0)) {
+      print_Nbox_list(Nbox_list,n_Nbox,drift_block);
+    }
+    
+    for (int i_Nbox=0; i_Nbox<n_Nbox; i_Nbox++) {
+
+      int Nbox = Nbox_list[i_Nbox];
+      
+      float sqrtNbox = sqrt(Nbox);
+      gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
+                                gpu_std_vector, sqrtNbox, num_channels);
+
+      for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
+
+        float *gpu_Nbox_path_sum_line;
+        bool init_boxcar = false;
+
+        if (Nbox == 1) {
+          gpu_Nbox_path_sum_line = (float *) &taylor_sums[path_offset*num_channels];
+        } else {
+          // Do the boxcar filtering 
+
+          // Generate power of 2 sum vectors
+          if (!init_boxcar) {
+            gpu_DD_sums_line = (float *) &taylor_sums[path_offset*num_channels];
+            gen_boxcar_p2_sums_gpu(gpu_DD_sums_line,gpu_p2_path_sums,num_channels,log2_max_p2,n_zp);
+            checkCuda("cudaMemcpy-gen_boxcar_p2_sums_gpu");
+            init_boxcar = true;
+          }
+          // Generate boxcar sums for arbitrary Nbox values
+          
+          gen_boxcar_sum_gpu(gpu_p2_path_sums,gpu_boxcar_work,gpu_Nbox_path_sum,Nbox,num_channels,log2_max_p2,n_zp);
+          gpu_Nbox_path_sum_line = gpu_Nbox_path_sum;
+          
+        }
+        // Update the best SNRs over frequency
+        findTopPathSNRs_1step<<<grid_size, CUDA_MAX_THREADS>>>(gpu_Nbox_path_sum_line, rounded_num_timesteps,
+                                num_channels, path_offset, drift_block, mu, gpu_sigma_scale_vector, Nbox,
+                                gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
+                                gpu_top_path_Nbox);
+        checkCuda("findTopPathSNRs_1step");
+      }
+    }
+
+    // Update the best SNRs over frequency
+    
+    #if 0
+      // uses local estimate of spectrum std dev to estimate SNR
+      findTopPathSNRs<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
+                                num_channels, drift_block, mu, gpu_sigma_scale_vector, Nbox,
+                                gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
+                                gpu_top_path_Nbox);
+      checkCuda("findTopPathSNRs");
+    #endif
+  }
+
+  // Now that we have done all the GPU processing for one coarse
+  // channel, we can copy the data back to host memory.
+  // These copies are not async, so they will synchronize to the default stream.
+  // cudaMemcpy(cpu_column_sums, gpu_column_sums,
+  //            num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(cpu_top_path_snrs, gpu_top_path_snrs,
+             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(cpu_top_drift_blocks, gpu_top_drift_blocks,
+             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(cpu_top_path_offsets, gpu_top_path_offsets,
+             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(cpu_top_path_Nbox, gpu_top_path_Nbox,
+             num_channels * sizeof(int), cudaMemcpyDeviceToHost);
+  checkCuda("dedoppler d->h memcpy");
+  
+
+  double t_DD_sec = (timeInMS() - start_ms)*.001;
+  
+  /*
+  ** Find detections
+  */
+
+  start_ms = timeInMS();
+
+     
   // We consider two hits to be duplicates if the distance in their
   // frequency indexes is less than window_size. We only want to
   // output the largest representative of any set of duplicates.
@@ -374,29 +662,25 @@ void Dedopplerer::search(const FilterbankBuffer& input,
             drift_rate_resolution,drift_timesteps,diagonal_drift_rate);
     printf("max_drift=%.2f normalized_max_drift=%.2f drift_timesteps=%d window_size=%d=>%.0f Hz\n",
             max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
-    printf("Overall Coarse Channel mean=%6.0f std_dev=%6.0f mean/std=%6.3f vs %6.3f\n\n",
-            m,std_dev,m/std_dev,sqrt(2*n_avg));
   }
 
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
 
     int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
-    float path_sum_threshold = subband_det_threshold[i_band];
-    float local_mean = subband_mean[i_band];
-    std_dev = subband_std[i_band];
+    std_dev = cpu_subband_std[i_band];
   
-    float candidate_path_sum = path_sum_threshold;
+    float candidate_path_snr = snr_threshold;
 
     for (int j = 0; j < window_size; ++j) {
       int freq = i * window_size + j;
       if (freq >= num_channels) {
         break;
       }
-      if (cpu_top_path_sums[freq] > candidate_path_sum) {
+      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
         // This is the new best candidate of the window
         candidate_freq = freq;
-        candidate_path_sum = cpu_top_path_sums[freq];
+        candidate_path_snr = cpu_top_path_snrs[freq];
       }
     }
     if (candidate_freq < 0) {
@@ -405,28 +689,23 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
     // Check every frequency closer than window_size if we have a candidate
     int window_end = min(num_channels, candidate_freq + window_size);
-    bool found_larger_path_sum = false;
+    bool found_larger_path_snr = false;
     for (int freq = max(0, candidate_freq - window_size + 1); freq < window_end; ++freq) {
-      if (cpu_top_path_sums[freq] > candidate_path_sum) {
-        found_larger_path_sum = true;
+      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
+        found_larger_path_snr = true;
         break;
       }
     }
-    if (!found_larger_path_sum) {
+    if (!found_larger_path_snr) {
       // The candidate frequency is the best within its window
       int drift_bins = cpu_top_drift_blocks[candidate_freq] * drift_timesteps +
         cpu_top_path_offsets[candidate_freq];
       double drift_rate = drift_bins * drift_rate_resolution;
-      float snr = (candidate_path_sum - local_mean) / std_dev;
-
-      // Hack: to look at snr components for detections using test files, just set them to snr
-      // float snr = candidate_path_sum/1e3;
-      // float snr = local_mean/10;
-      // float snr = std_dev/10;
+      float snr = candidate_path_snr;
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift) {
         DedopplerHit hit(metadata, candidate_freq, drift_bins, drift_rate,
-                         snr, beam, coarse_channel, num_timesteps, candidate_path_sum);
+                         snr, beam, coarse_channel, num_timesteps, candidate_path_snr);
         if (print_hits) {
           cout << "hit: " << hit.toString() << endl;
         }
@@ -435,16 +714,20 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     }
   }
 
-  free(work);
+  free(subband_work);
+  free(Nbox_list);
+  
   
   double t_log_hits_sec = (timeInMS() - start_ms)*.001;
   double t_search_sec = (timeInMS() - start_ms_all)*.001;
 
-  printf("Elapsed times: coarse chnl %d, UM %d, fft %d, sti %d, lti %d\n",
+  printf("\nElapsed times: coarse chnl %d, UM %d, fft %d, sti %d, lti %d\n",
               coarse_channel,(int)input.managed,num_channels,n_sti,n_lti);
+  printf("Input copy:      %.3f sec\n",t_input_copy_sec);
   printf("Sum Columns:     %.3f sec\n",t_sumcols_sec);
-  printf("Taylor GPU:      %.3f sec\n",t_DD_sec);
   printf("Stats:           %.3f sec\n",t_stats_sec);
+  printf("Scale input:     %.3f sec\n",t_scale_sec);
+  printf("Taylor GPU:      %.3f sec\n",t_DD_sec);
   printf("Log Hits:        %.3f sec\n",t_log_hits_sec);
   printf("DeDoppler total: %.3f sec\n",t_search_sec);
 

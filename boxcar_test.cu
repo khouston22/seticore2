@@ -44,7 +44,6 @@ int main() {
     cudaMalloc(&gpu_Nbox_path_sum, n_freq*sizeof(float));
     cudaMallocHost(&Nbox_path_sum, n_freq*sizeof(float));
     checkCuda("Nbox_path_sum malloc");
-    cudaMemsetAsync(gpu_work, 0, 2*n_freq_ext*sizeof(float));
   #else
     printf("Boxcar CPU Test\n");
     DD_sums_line = (float *) malloc(n_freq*sizeof(float));

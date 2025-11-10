@@ -74,6 +74,68 @@ void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_fr
   }
 }
 
+/* interpolate subband mean or std values to full values over all freqs */
+
+__global__ void gpu_subband_interpolate(float* x, int n_freq, float* x_subband, int n_subband)
+{
+  int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i_freq < 0 || i_freq >= n_freq) {
+    return;
+  }
+
+  int nf_subband = n_freq/n_subband;
+  int i_subband = i_freq/nf_subband;
+  int df = i_freq - nf_subband*i_subband - nf_subband/2;
+  float scale;
+
+  if (df>=0) {
+    if (i_subband < n_subband-1) {
+      scale = (x_subband[i_subband+1] - x_subband[i_subband])/nf_subband;
+    } else {
+      scale = (x_subband[n_subband-1] - x_subband[n_subband-2])/nf_subband;
+    }
+  } else {
+    if (i_subband > 0) {
+      scale = (x_subband[i_subband] - x_subband[i_subband-1])/nf_subband;
+    } else {
+      scale = (x_subband[1] - x_subband[0])/nf_subband;
+    }
+  }
+  x[i_freq] = x_subband[i_subband] + df*scale;
+}
+
+
+/* 
+scale a chi-square spectrum line to unit mean 
+x[f] = x[f]/mu[f]
+*/
+
+__global__ void gpu_local_mean_scale(float* x, float* mu, int n_freq)
+{
+  int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i_freq < 0 || i_freq >= n_freq) {
+    return;
+  }
+
+  x[i_freq] = (x[i_freq]/mu[i_freq]);
+}
+
+/* 
+scale a chi-square spectrum line to unit mean 
+sigma_scale[f] = sqrtNbox/sigma[f]
+*/
+
+__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float sqrtNbox, int n_freq)
+{
+  int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i_freq < 0 || i_freq >= n_freq) {
+    return;
+  }
+
+  sigma_scale[i_freq] = (sqrtNbox/sigma[i_freq]);
+}
+
+
 
 void ncoh_avg_test(const float* x, int Nf, int Nt, int n_sti, int n_subband)
 {
@@ -168,7 +230,7 @@ void calc_mean_std_dev2(const float* x, int n, float *mean, float *std_dev)
   float sum_x2 = 0.;
   float sum_x = 0.;
 
-for (int i = 0; i < n; i++) {
+  for (int i = 0; i < n; i++) {
     float temp = x[i];
     sum_x += temp;
     sum_x2 += temp*temp;
@@ -208,7 +270,7 @@ void print_x_lr(float* x, int max_ofs, float scale)
     if (i_ofs%10==0) printf("\n%6d   ",i_ofs);
     printf("%8.0f ",x[i_ofs]*scale);
   }
-  printf("\n");
+  if (max_ofs%10==0) printf("\n"); else printf("\n\n");
 } 
 
 void print_x_segment(float* x, int n_pts, float scale) 
@@ -220,6 +282,18 @@ void print_x_segment(float* x, int n_pts, float scale)
     if (i_ofs%10==0) printf("\n%6d   ",i_ofs);
     printf("%8.0f ",x[i_ofs]*scale);
   }
-  printf("\n");
+  if (n_pts%10==0) printf("\n"); else printf("\n\n");
+} 
+
+void print_x_segment_stride(float* x, int n_pts, int stride, float scale) 
+{
+  // view vector segment with strided index
+  // call: print_x_segment_stride(&x[start],n_pts,stride,scale);
+    
+  for (int i_ofs=0; i_ofs<n_pts; i_ofs++) {
+    if (i_ofs%10==0) printf("\n%6d   ",i_ofs*stride);
+    printf("%8.0f ",x[i_ofs*stride]*scale);
+  }
+  if (n_pts%10==0) printf("\n"); else printf("\n\n");
 } 
 

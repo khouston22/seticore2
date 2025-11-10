@@ -43,3 +43,14 @@ void DC_replace(float* x, int DC_replace_ofs, int DC_mean_pts);
 void print_x_lr(float* x, int max_ofs, float scale);
 
 void print_x_segment(float* x, int n_pts, float scale);
+
+void print_x_segment_stride(float* x, int n_pts, int stride, float scale);
+
+__global__ void gpu_subband_interpolate(float* x, int n_freq, float* x_subband, int n_subband);
+
+__global__ void gpu_zero_mean_unit_std(float* x, float* mu, float * sigma, int n_freq);
+
+__global__ void gpu_local_mean_scale(float* x, float* mu, int n_freq);
+
+__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float sqrtNbox, int n_freq);
+
