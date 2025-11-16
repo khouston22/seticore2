@@ -92,13 +92,13 @@ __global__ void gpu_subband_interpolate(float* x, int n_freq, float* x_subband, 
     if (i_subband < n_subband-1) {
       scale = (x_subband[i_subband+1] - x_subband[i_subband])/nf_subband;
     } else {
-      scale = (x_subband[n_subband-1] - x_subband[n_subband-2])/nf_subband;
+      scale = 0.;   // Don't extrapolate at uppermost subband right edge
     }
   } else {
     if (i_subband > 0) {
       scale = (x_subband[i_subband] - x_subband[i_subband-1])/nf_subband;
     } else {
-      scale = (x_subband[1] - x_subband[0])/nf_subband;
+      scale = 0.;   // Don't extrapolate at lowermost subband left edge
     }
   }
   x[i_freq] = x_subband[i_subband] + df*scale;

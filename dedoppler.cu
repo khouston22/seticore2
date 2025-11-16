@@ -50,45 +50,29 @@ __global__ void findTopPathSNRs(const float* path_sums, int num_timesteps, int n
   float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
 
   for (int path_offset = 0; path_offset < num_timesteps; ++path_offset) {
-    // Check if the last frequency in this path is out of bounds
-    int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
-    if (last_freq < 0 || last_freq >= num_freqs) {
-      // No more of these paths can be valid, either
-      return;
+  
+    // Check if the first or last frequency in this path is out of bounds
+    if (drift_block>=0) {
+      int last_freq = num_freqs - 1 - ((num_timesteps - 1) * drift_block + path_offset) - Nbox;
+      if (freq > last_freq) {
+        return;
+      }
+    } else {
+      int first_freq = -((num_timesteps - 1) * drift_block + path_offset) + Nbox;
+      if (freq < first_freq) {
+        return;
+      }
     }
+
+    // // Incorrect approach
+    // // Check if the last frequency in this path is out of bounds
+    // int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
+    // if (last_freq < 0 || last_freq >= num_freqs) {
+    //   // No more of these paths can be valid, either
+    //   return;
+    // }
 
     float path_snr = (path_sums[num_freqs * path_offset + freq]*path_scale - mu)*sigma_scale[freq];
-    if (path_snr > top_path_snrs[freq]) {
-      top_path_snrs[freq] = path_snr;
-      top_drift_blocks[freq] = drift_block;
-      top_path_offsets[freq] = path_offset;
-      top_path_Nbox[freq] = Nbox;
-    }
-  }
-}
-
-__global__ void findTopPathSNRs0(const float* path_sums, int num_timesteps, int num_freqs,
-                                int drift_block, float mu, float sigma_scale, int Nbox,
-                                float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
-                                int* top_path_Nbox) {
-
-  int freq = blockIdx.x * blockDim.x + threadIdx.x;
-  if (freq < 0 || freq >= num_freqs) {
-    return;
-  }
-  // mu is nominal mean after equalization across band 
-  // sigma_scale = sqrt(Nbox)/sigma typically
-  float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
-
-  for (int path_offset = 0; path_offset < num_timesteps; ++path_offset) {
-    // Check if the last frequency in this path is out of bounds
-    int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
-    if (last_freq < 0 || last_freq >= num_freqs) {
-      // No more of these paths can be valid, either
-      return;
-    }
-
-    float path_snr = (path_sums[num_freqs * path_offset + freq]*path_scale - mu)*sigma_scale;
     if (path_snr > top_path_snrs[freq]) {
       top_path_snrs[freq] = path_snr;
       top_drift_blocks[freq] = drift_block;
@@ -113,11 +97,17 @@ __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_times
   // sigma_scale[freq] = sqrt(Nbox)/sigma[freq] typically
   float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
 
-  // Check if the last frequency in this path is out of bounds
-  int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
-  if (last_freq < 0 || last_freq >= num_freqs) {
-    // No more of these paths can be valid, either
-    return;
+  // Check if the first or last frequency in this path is out of bounds
+  if (drift_block>=0) {
+    int last_freq = num_freqs - 1 - ((num_timesteps - 1) * drift_block + path_offset) - Nbox;
+    if (freq > last_freq) {
+      return;
+    }
+  } else {
+    int first_freq = -((num_timesteps - 1) * drift_block + path_offset) + Nbox;
+    if (freq < first_freq) {
+      return;
+    }
   }
 
   float path_snr = (path_sums_line[freq]*path_scale - mu)*sigma_scale[freq];
@@ -539,6 +529,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // Do the Taylor tree algorithm for each drift block
 
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+
     // Calculate Taylor sums
     const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
                                                    rounded_num_timesteps, num_channels,
@@ -592,7 +583,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
           gpu_Nbox_path_sum_line = gpu_Nbox_path_sum;
           
         }
-        // Update the best SNRs over frequency
+        // Update the best SNRs over frequency - one line at a time
         findTopPathSNRs_1step<<<grid_size, CUDA_MAX_THREADS>>>(gpu_Nbox_path_sum_line, rounded_num_timesteps,
                                 num_channels, path_offset, drift_block, mu, gpu_sigma_scale_vector, Nbox,
                                 gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
