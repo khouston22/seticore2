@@ -16,8 +16,8 @@
 #endif
 
 #define DC_REPLACE_ENABLE 1
-#define DC_MEAN_PTS 20
-#define DC_REPLACE_OFS 10
+#define DC_MEAN_PTS 40
+#define DC_REPLACE_OFS 15
   
 #define N_SUBBAND 128
 #define N_SUBBAND_MAX 256

@@ -90,17 +90,17 @@ int main() {
 
   #if TEST_GPU
     #if 1
-      gen_boxcar_p2_sums_gpu(gpu_DD_sums_line,gpu_p2_path_sums,n_freq,log2_max_p2,n_zp);
+      gen_boxcar_p2_sums_gpu(gpu_p2_path_sums,gpu_DD_sums_line,n_freq,log2_max_p2,n_zp);
       cudaMemcpy(p2_path_sums,gpu_p2_path_sums,
                  n_freq_ext*n_p2*sizeof(float), cudaMemcpyDeviceToHost);
       checkCuda("cudaMemcpy-gen_boxcar_p2_sums_gpu");
       cudaDeviceSynchronize();
     #else
       // still compute in cpu
-      gen_boxcar_p2_sums_cpu( DD_sums_line,p2_path_sums,n_freq,log2_max_p2,n_zp);
+      gen_boxcar_p2_sums_cpu(p2_path_sums,DD_sums_line,n_freq,log2_max_p2,n_zp);
     #endif
   #else
-    gen_boxcar_p2_sums_cpu( DD_sums_line,p2_path_sums,n_freq,log2_max_p2,n_zp);
+    gen_boxcar_p2_sums_cpu(p2_path_sums,DD_sums_line,n_freq,log2_max_p2,n_zp);
   #endif
 
   // Print out power of 2 boxcar sum vectors
@@ -119,13 +119,13 @@ int main() {
 
   for (int Nbox=1; Nbox<=Nbox_max; Nbox++) {
     #if TEST_GPU
-      gen_boxcar_sum_gpu(gpu_p2_path_sums,gpu_work,gpu_Nbox_path_sum,Nbox,n_freq,log2_max_p2,n_zp);
+      gen_boxcar_sum_gpu(gpu_Nbox_path_sum,gpu_p2_path_sums,gpu_work,Nbox,n_freq,log2_max_p2,n_zp);
       cudaMemcpy(Nbox_path_sum,gpu_Nbox_path_sum,
                  n_freq*sizeof(float), cudaMemcpyDeviceToHost);
       checkCuda("cudaMemcpy-gen_boxcar_sum_gpu");
       cudaDeviceSynchronize();
     #else
-      gen_boxcar_sum_cpu(p2_path_sums,work,Nbox_path_sum,Nbox,n_freq,log2_max_p2,n_zp);
+      gen_boxcar_sum_cpu(Nbox_path_sum,p2_path_sums,work,Nbox,n_freq,log2_max_p2,n_zp);
     #endif
 
     // Print out boxcar sum vector
