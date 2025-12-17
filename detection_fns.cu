@@ -297,3 +297,15 @@ void print_x_segment_stride(float* x, int n_pts, int stride, float scale)
   if (n_pts%10==0) printf("\n"); else printf("\n\n");
 } 
 
+void print_f_x_segment(float* x, int n_pts, float scale, float f0, float df) 
+{
+  // view vector segment
+  // call: print_x_segment(&x[start],n_pts,scale);
+    
+  for (int i_ofs=0; i_ofs<n_pts; i_ofs++) {
+    if (i_ofs%10==0) printf("\n%6d %8.2f  ",i_ofs,f0+i_ofs*df);
+    printf("%8.0f ",x[i_ofs]*scale);
+  }
+  if (n_pts%10==0) printf("\n"); else printf("\n\n");
+} 
+

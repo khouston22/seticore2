@@ -46,6 +46,8 @@ void print_x_segment(float* x, int n_pts, float scale);
 
 void print_x_segment_stride(float* x, int n_pts, int stride, float scale);
 
+void print_f_x_segment(float* x, int n_pts, float scale, float f0, float df); 
+
 __global__ void gpu_subband_interpolate(float* x, int n_freq, float* x_subband, int n_subband);
 
 __global__ void gpu_zero_mean_unit_std(float* x, float* mu, float * sigma, int n_freq);

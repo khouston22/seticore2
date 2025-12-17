@@ -308,7 +308,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   int n_sti,n_lti,n_avg;
   float fs = metadata.foff*1e6; // FFT filter bank output sample rate prior to sti sum = bin bandwidth
-  float f_ctr_MHz = metadata.fch1 + (coarse_channel+0.5)*metadata.foff*num_channels;
+  float f1_MHz = metadata.fch1 + (coarse_channel*num_channels)*metadata.foff;
+  float f2_MHz = metadata.fch1 + (coarse_channel*num_channels+num_channels-1)*metadata.foff;
   
   n_sti= MAX(1,abs(round(metadata.tsamp*fs)));
   n_lti = num_timesteps;
@@ -316,8 +317,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   
   int mid = num_channels / 2;
 
-  printf("\ncoarse channel %d: %.3f MHz, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
-          coarse_channel,f_ctr_MHz,num_channels/1024.,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
+  printf("\ncoarse channel %d: %.3f-%.3f MHz, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, Drift Blocks %d to %d\n",
+          coarse_channel,f1_MHz,f2_MHz,num_channels/1024.,n_sti,n_lti,n_avg,min_drift_block,max_drift_block);
 
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
@@ -390,6 +391,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float shear_constant = 2.3;
   float *subband_work;
   subband_work = (float *) malloc(num_channels*sizeof(float));  // allow for max size for one subband
+  
+  float f0_sb_MHz = metadata.fch1 + (coarse_channel*num_channels+Nf_subband/2)*metadata.foff;
+  float df_sb_MHz = Nf_subband*metadata.foff;
 
   printf("\nFFT-size=%.0fK, n_subband=%d, Nf_subband=%d => %.0f Hz/subband:\n",num_channels/1024.,n_subband,
         Nf_subband,Nf_subband*fs);
@@ -469,7 +473,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       printf("n_subband=%d mean values after scale (x1000):\n",n_subband);
       print_x_segment(cpu_subband_mean, n_subband, 1000.0);
       printf("n_subband=%d std  values after scale (x1000):\n",n_subband);
-      print_x_segment(cpu_subband_std , n_subband, 1000.0);
+      print_f_x_segment(cpu_subband_std , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
     // }
   #endif
   
