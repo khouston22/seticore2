@@ -485,6 +485,14 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   printf("Coarse Channel %d Multi-subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
             coarse_channel,mu,std_dev,mu/std_dev,sqrt(2*n_avg));
 
+  /*
+  ** Detect broadband signals in subbands
+  */
+
+  // record BB hits
+
+  // revise mean & std in subbands with BB present
+
 
   // generate revised interpolated mu, std, sigma_scale vectors
 
@@ -528,7 +536,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   start_ms = timeInMS();
 
   /*
-  ** De-Doppler
+  ** De-Doppler and boxcar averaging
   */
 
   // set up boxcar average parameters
@@ -571,7 +579,21 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     if ((coarse_channel==0) && (drift_block==0)) {
       print_Nbox_list(Nbox_list,n_Nbox,drift_block);
     }
-    
+
+    // Update the best SNRs over frequency - for no boxcar filtering (Nbox=1)
+        
+    #if 0
+      // Need to adapt to check subbands for BB detections
+      // uses local estimate of spectrum std dev to estimate SNR
+      findTopPathSNRs<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
+                                num_channels, drift_block, mu, gpu_sigma_scale_vector, Nbox,
+                                gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
+                                gpu_top_path_Nbox);
+      checkCuda("findTopPathSNRs");
+    #endif
+
+    // Do boxcar filtering (Nbox>1)
+  
     for (int i_Nbox=0; i_Nbox<n_Nbox; i_Nbox++) {
 
       int Nbox = Nbox_list[i_Nbox];
@@ -612,16 +634,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       }
     }
 
-    // Update the best SNRs over frequency
-    
-    #if 0
-      // uses local estimate of spectrum std dev to estimate SNR
-      findTopPathSNRs<<<grid_size, CUDA_MAX_THREADS>>>(taylor_sums, rounded_num_timesteps,
-                                num_channels, drift_block, mu, gpu_sigma_scale_vector, Nbox,
-                                gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
-                                gpu_top_path_Nbox);
-      checkCuda("findTopPathSNRs");
-    #endif
   }
 
   // Now that we have done all the GPU processing for one coarse
