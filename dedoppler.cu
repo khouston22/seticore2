@@ -340,6 +340,11 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   double t_input_copy_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
 
+  /*
+  ** Compute mean spectrum from spectrogram = averaging columns in SG matrix
+  ** then copy spectrum back to CPU
+  */
+  
   float scale = 1./num_timesteps;
   sumColumns<<<grid_size, CUDA_MAX_THREADS>>>(input.d_sg_data, gpu_column_sums,
                                               num_timesteps, num_channels, scale);
@@ -352,6 +357,10 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   double t_sumcols_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
 
+  /*
+  ** Excise DC spike if enabled
+  */
+  
   #if 0
     printf("Column sums: DC vicinity:");
     print_x_lr(&cpu_column_sums[mid],100,1.0);
@@ -370,6 +379,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   cudaMemcpy(&gpu_column_sums[mid-DC_REPLACE_OFS], &cpu_column_sums[mid-DC_REPLACE_OFS],
             (2*DC_REPLACE_OFS+1) * sizeof(float), cudaMemcpyHostToDevice);
   checkCuda("sumColumns DC h->d memcpy");
+
   // Copy DC points from CPU to GPU Spectrograms d_sg_data
   for (int i_time=0; i_time<num_timesteps; i_time++) {
     cudaMemcpy(&input.d_sg_data[i_time*num_channels+mid-DC_REPLACE_OFS], &cpu_column_sums[mid-DC_REPLACE_OFS],
@@ -400,8 +410,18 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
                 subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
- 
+  
+  // save first pass mean data
+  float subband_mean0[N_SUBBAND_MAX];
+  memcpy(subband_mean0,cpu_subband_mean,n_subband*sizeof(float));
+  float subband_mean0_min=subband_mean0[0];
+  for (int i_band=0; i_band<n_subband; i_band++) {
+    subband_mean0_min = MIN(subband_mean0[i_band],subband_mean0_min);
+  }
+
   // Check overall mean & std with just one subband (entire coarse channel)
+  // mu/std ratio will be poor match to chi-square
+
   float mu,std_dev;
   multipass_subband_mean_std(cpu_column_sums,num_channels,1,shear_constant,
                 subband_work,&mu,&std_dev,subband_limit);
@@ -419,22 +439,14 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 128);
   #endif
 
-  #if 0
-    // if (coarse_channel==0) {
-      printf("n_subband=%d mean values:\n",n_subband);
-      print_x_segment(cpu_subband_mean, n_subband, 1.0);
-      printf("n_subband=%d std  values:\n",n_subband);
-      print_x_segment(cpu_subband_std , n_subband, 1.0);
-    // }
-  #endif
-
   double t_stats_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
  
   /*
-  ** Scale input data in GPU to unit mean by interpolation, recompute subband stats, scale again
+  ** Scale input data in GPU to unit mean by interpolation
   */
 
+  
   cudaMemcpy(gpu_subband_mean,cpu_subband_mean,n_subband*sizeof(float),cudaMemcpyHostToDevice);
   checkCuda("cudaMemcpy-gpu_subband_mean");
   float* gpu_mu_vector = &gpu_mu_std_work[0];
@@ -451,7 +463,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     }
   #endif
 
-
   for (int i_time=0; i_time < num_timesteps; i_time++) {
     gpu_local_mean_scale<<<grid_size, CUDA_MAX_THREADS>>>(&input.d_sg_data[i_time*num_channels], 
                                         gpu_mu_vector, num_channels);
@@ -464,21 +475,37 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   cudaMemcpy(cpu_column_sums, gpu_column_sums,
             num_channels * sizeof(float), cudaMemcpyDeviceToHost);
   checkCuda("sumColumns d->h memcpy");
+
+  /*
+  ** Compute mean & std for subbands, second pass
+  */
   
   multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
-              subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
+                subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
+  
+  // determine mean and std in subbands for with no clipping
+
+  float subband_mean_no_clip[N_SUBBAND_MAX];
+  float subband_std_no_clip[N_SUBBAND_MAX];
+  bool do_limit = false;
+  calc_subband_mean_std(cpu_column_sums,num_channels,n_subband,do_limit,subband_limit,subband_work,
+                subband_mean_no_clip,subband_std_no_clip);
 
   #if 1
-    // if (coarse_channel==0) {
-      printf("n_subband=%d mean values after scale (x1000):\n",n_subband);
-      print_x_segment(cpu_subband_mean, n_subband, 1000.0);
-      printf("n_subband=%d std  values after scale (x1000):\n",n_subband);
-      print_f_x_segment(cpu_subband_std , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
-    // }
+    printf("n_subband=%d mean values after scale (x1000):\n",n_subband);
+    print_x_segment(cpu_subband_mean, n_subband, 1000.0);
+    printf("n_subband=%d std  values after scale (x1000):\n",n_subband);
+    print_f_x_segment(cpu_subband_std , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
+  #endif
+  #if 1
+    // printf("n_subband=%d no clip mean values after scale (x1000):\n",n_subband);
+    // print_x_segment(subband_mean_no_clip, n_subband, 1000.0);
+    printf("n_subband=%d no clip std  values after scale (x1000):\n",n_subband);
+    print_f_x_segment(subband_std_no_clip,n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
   #endif
   
-
-  // overall mean & std dev once normalized
+  // Check overall mean & std with just one subband (entire coarse channel) after normalization
+  // mu/std ratio will be a much better match to chi-square
 
   multipass_subband_mean_std(cpu_column_sums,num_channels,1,shear_constant,
                 subband_work,&mu,&std_dev,subband_limit);
@@ -489,17 +516,93 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   ** Detect broadband signals in subbands
   */
 
-  // record BB hits
+  float BB_z_det = 5.;
+  float BB_det_threshold = 1.05/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
+  float BB_subband_detected[N_SUBBAND_MAX];
+  int BB_subband_det_count = 0;
+  for (int i_band=0; i_band<n_subband; i_band++) {
+    if (cpu_subband_std[i_band] > BB_det_threshold) {
+      BB_subband_detected[i_band] = 1.0;
+      BB_subband_det_count++;
+    } else {
+      BB_subband_detected[i_band] = 0.0;    
+    }
+  }
+  #if 1
+      if (BB_subband_det_count == 0) {
+        printf("Broadband detections, threshold=%.3f: No BB detections\n",BB_det_threshold);
+      } else {
+        printf("Broadband detections, threshold=%.3f: %d subband detections\n",BB_det_threshold,BB_subband_det_count);
+        print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
+      }
+  #endif
+
+  // cluster and record BB hits
+
+  # define N_BB_DET_MAX (N_SUBBAND_MAX/2)
+  int BB_det_idx = -1;
+  int BB_det_sb1[N_BB_DET_MAX];
+  int BB_det_sb2[N_BB_DET_MAX];
+  float BB_f1_MHz[N_BB_DET_MAX];
+  float BB_f2_MHz[N_BB_DET_MAX];
+  float BB_fctr_MHz[N_BB_DET_MAX];
+  float BB_BW_MHz[N_BB_DET_MAX];
+  float BB_SNR[N_BB_DET_MAX];
+  bool in_BB_cluster = false;
+
+  for (int i_band=0; i_band<n_subband; i_band++) {
+    if (BB_subband_detected[i_band]>0.) {
+      if (!in_BB_cluster) {
+        // new cluster
+        in_BB_cluster = true;
+        BB_det_idx++;
+        BB_det_sb1[BB_det_idx] = i_band;
+        if (df_sb_MHz>=0.) {
+          BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_band-0.5)*df_sb_MHz;
+        } else {
+          BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_band-0.5)*df_sb_MHz;
+        }
+      } 
+      // whether new or existing cluster, assume this is last point
+      BB_det_sb2[BB_det_idx] = i_band;
+      if (df_sb_MHz>=0.) {
+        BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_band+0.5)*df_sb_MHz;
+      } else {
+        BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_band+0.5)*df_sb_MHz;
+      }
+      // Assign SNR corresponding to center point
+      int i_band_ctr = (BB_det_sb1[BB_det_idx]+BB_det_sb2[BB_det_idx])/2;
+      BB_fctr_MHz[BB_det_idx] = f0_sb_MHz + (i_band_ctr)*df_sb_MHz;
+      BB_BW_MHz[BB_det_idx] = BB_f2_MHz[BB_det_idx] - BB_f1_MHz[BB_det_idx];
+      BB_SNR[BB_det_idx] = subband_mean0[i_band_ctr]/subband_mean0_min;  // hack
+    } else {
+      in_BB_cluster = false;
+    }
+  }
+  int N_BB_det = BB_det_idx + 1;
+
+  #if 1
+    for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
+      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, SNR %5.1f\n",
+            i_BB_det,BB_det_sb1[i_BB_det],BB_det_sb2[i_BB_det],
+            BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],BB_fctr_MHz[i_BB_det],BB_BW_MHz[i_BB_det]*1e3,BB_SNR[i_BB_det]);
+    }
+  #endif
 
   // revise mean & std in subbands with BB present
 
+  for (int i_band=0; i_band<n_subband; i_band++) {
+    if (BB_subband_detected[i_band]>0.) {
+      cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band]*10;
+    }
+  }
 
   // generate revised interpolated mu, std, sigma_scale vectors
 
   cudaMemcpy(gpu_subband_mean,cpu_subband_mean,n_subband*sizeof(float),cudaMemcpyHostToDevice);
   checkCuda("cudaMemcpy-gpu_subband_mean");
   cudaMemcpy(gpu_subband_std ,cpu_subband_std ,n_subband*sizeof(float),cudaMemcpyHostToDevice);
-  checkCuda("cudaMemcpy-gpu_subband_mean");
+  checkCuda("cudaMemcpy-gpu_subband_std");
 
   gpu_mu_vector = &gpu_mu_std_work[0];
   gpu_subband_interpolate<<<grid_size, CUDA_MAX_THREADS>>>(gpu_mu_vector, 
