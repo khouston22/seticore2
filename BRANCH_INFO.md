@@ -29,6 +29,10 @@ Variant of sc2 using fastDD CPU code.  This might be useful in systems without a
 
 ## sc3
 
-Further refactoring, TBD.
+Further normalization refinements.  Instead of having a single mean & std estimate for a subband, the subband estimates are interpolated for every frequency in the coarse channel.  The entire input spectrogram is divided by the point-by-point mean.  This equalizes or "flattens" the overall spectrum. The normalization process is then repeated so that the mean & std statistics reflect deviations from a flattened spectrum, which greatly reduces the effect of slope in the original spectrum.
+
+Boxcar filtering is applied to the DeDoppler output.  A "moving average" filter (FIR filter with Nbox equal coefficients) is applied to every line of the DD output. Nbox is chosen to offset the spectral "smearing" that occurs to a drifting tone when a spectrogram is averaged by Nsti lines prior to DeDoppler.  The smearing spreads energy to Nbox adjacent frequency points.  A net gain of SNR (ideally sqrt(Nbox)) is obtained by summing adjacent frequency bins together in the moving average.
+
+DC offset excision is also updated.
 
 Note that after switching branches ("git checkout branch_name"), it is necessary to recompile ("meson compile").
