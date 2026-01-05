@@ -15,15 +15,6 @@
 #define	MIN(A, B)	(((A) < (B)) ? (A) : (B))
 #endif
 
-#define DC_REPLACE_ENABLE 1
-#define DC_MEAN_PTS 40
-#define DC_REPLACE_OFS 15
-  
-#define N_SUBBAND 128
-#define N_SUBBAND_MAX 256
-// Minimum number of freq bins per subband - for low SNR variability
-#define NF_SUBBAND_MIN 8192
-
 void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_freq);
 
 void calc_mean_std_dev(const float* x, int n, float *mean, float *std_dev);

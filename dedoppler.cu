@@ -15,6 +15,15 @@
 #define LOG2_MAX_NBOX_P2 (6)  // determines maximum memory reqts for boxcar averaging of DD sums
 #include "boxcar_sum.h"
 
+#define N_SUBBAND 128
+#define N_SUBBAND_MAX 256
+// Minimum number of freq bins per subband - for low SNR variability
+#define NF_SUBBAND_MIN 8192
+
+#define DC_REPLACE_ENABLE 1
+#define DC_MEAN_PTS 40
+#define DC_REPLACE_OFS 15
+  
 #include "detection_fns.h"
 
 /*
