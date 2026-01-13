@@ -8,19 +8,24 @@
 
 using namespace std;
 
-DedopplerHit::DedopplerHit(const FilterbankMetadata& metadata, int _index,
-                           int _drift_steps, double _drift_rate,
-                           float _snr, int _beam, int _coarse_channel,
-                           int _num_timesteps, float _power)
-  : index(_index), drift_steps(_drift_steps), drift_rate(_drift_rate),
-    snr(_snr), coarse_channel(_coarse_channel),
-    beam(metadata.isCoherentBeam(_beam) ? _beam : NO_BEAM),
-    num_timesteps(_num_timesteps), power(_power), incoherent_power(0.0) {
 
-  int coarse_offset = coarse_channel * metadata.coarse_channel_size;
-  int global_index = coarse_offset + index;
-  frequency = metadata.fch1 + global_index * metadata.foff;
+// DedopplerHit(const FilterbankMetadata& metadata, int _index, 
+//               double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
+//               int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
+//               int _num_timesteps, float _power);
+
+DedopplerHit::DedopplerHit(const FilterbankMetadata& metadata, int _index, 
+              double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
+              int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
+              int _num_timesteps, float _power)
+     :  index(_index), freq_MHz_ctr(_freq_MHz_ctr), 
+        freq_MHz1(_freq_MHz1), freq_MHz2(_freq_MHz2), 
+        drift_steps(_drift_steps), drift_rate(_drift_rate),
+        snr(_snr), coarse_channel(_coarse_channel),
+        beam(metadata.isCoherentBeam(_beam) ? _beam : NO_BEAM),
+        num_timesteps(_num_timesteps), power(_power), incoherent_power(0.0) {
 }
+           
 
 string DedopplerHit::toString() const {
   return fmt::format("coarse channel = {}, index = {}, snr = {:.5f}, "

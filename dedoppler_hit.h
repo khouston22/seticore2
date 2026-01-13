@@ -10,12 +10,17 @@ const int NO_BEAM = -1;
 
 class DedopplerHit {
 public:
-  // The frequency the hit starts at
-  double frequency;
-
-  // Which frequency bin the hit starts at, within the coarse channel
+  // Which frequency bin the hit starts at, within the coarse channel, at t=0
   int index;
 
+  // Relevant frequencies (chosen to be consistent with turbo_seti dat files)
+  double freq_MHz_ctr;    // center frequency in MHz = (freq_MHz1+freq_MHz2)/2
+  double freq_MHz1;       // chirp start freq (at time 0) 
+  double freq_MHz2;       // chirp end freq (at end of obs time)
+  // TODO: resolve whether freq_MHz2 > freq_MHz1 always in dat file (FreqStart and FreqEnd)
+  // double freq_MHz1;       // Lower limit of chirp = freq_MHz_ctr - abs(drift_rate)/2 
+  // double freq_MHz2;       // Upper limit of chirp = freq_MHz_ctr + abs(drift_rate)/2
+  
   // How many bins the hit drifts over.
   // Like (ending index - starting index), this is positive for rightward drift,
   // negative for leftward drift.
@@ -44,9 +49,10 @@ public:
   // The total power in the incoherent beam, calculated along the same line.
   float incoherent_power;
   
-  DedopplerHit(const FilterbankMetadata& metadata, int _index, int _drift_steps,
-               double _drift_rate, float _snr, int _beam, int _coarse_channel,
-               int _num_timesteps, float _power);
+  DedopplerHit(const FilterbankMetadata& metadata, int _index, 
+              double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
+              int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
+              int _num_timesteps, float _power);
 
   string toString() const;
 

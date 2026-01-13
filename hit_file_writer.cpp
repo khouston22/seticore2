@@ -48,7 +48,7 @@ void HitFileWriter::recordHit(DedopplerHit dedoppler_hit, const float* input) {
 
 // Write a hit to a protocol buffer
 void buildSignal(const DedopplerHit& hit, Signal::Builder signal) {
-  signal.setFrequency(hit.frequency);
+  signal.setFrequency(hit.freq_MHz_ctr);
   signal.setIndex(hit.index);
   signal.setDriftSteps(hit.drift_steps);
   signal.setDriftRate(hit.drift_rate);

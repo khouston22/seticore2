@@ -53,22 +53,17 @@ DatFileWriter::~DatFileWriter() {
   file.close();
 }
 
-
 // Ignores the beam
 void DatFileWriter::recordHit(DedopplerHit hit, const float* input) {
   ++hit_count;
-
-  int global_index = hit.coarse_channel * metadata.coarse_channel_size + hit.index;
-  double frequency = metadata.fch1 + global_index * metadata.foff;
-  double total_drift_MHz = metadata.tsamp*metadata.num_timesteps*hit.drift_rate*1e-6;
 
   // Currently we just output one frequency for all frequency-type columns.
   // We also just output 1 instead of counting up pre-deduping hits because I suspect
   // that nobody wants it, and it's bothersome to calculate with our current algorithm.
   // TODO: see what the astronomers actually want here
   file << fmt::format("{}\t{:10.6f}\t{:10.6f}\t{:14.6f}\t{:14.6f}\t{}\t{:14.6f}\t{:14.6f}\t",
-                      hit_count, hit.drift_rate, hit.snr, frequency,
-                      frequency, hit.index, frequency, frequency+total_drift_MHz);
+                      hit_count, hit.drift_rate, hit.snr, hit.freq_MHz_ctr, hit.freq_MHz_ctr,
+                      hit.index,  hit.freq_MHz1, hit.freq_MHz2);
   file << fmt::format("0.0\t0.000000\t{}\t1\t\n", hit.coarse_channel);
   file << flush;
 }
