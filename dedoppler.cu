@@ -45,52 +45,6 @@
   comments in taylor.cu for details.
 */
 
-__global__ void findTopPathSNRs(const float* path_sums, int num_timesteps, int num_freqs,
-                                int drift_block, float mu, float* sigma_scale, int Nbox,
-                                float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
-                                int* top_path_Nbox) {
-
-  int freq = blockIdx.x * blockDim.x + threadIdx.x;
-  if (freq < 0 || freq >= num_freqs) {
-    return;
-  }
-  // mu is nominal mean after equalization across band 
-  // sigma_scale[freq] = sqrt(Nbox)/sigma[freq] typically
-  float path_scale = 1./num_timesteps;  // assumes DD algorithm does not normalize by #lines summed
-
-  for (int path_offset = 0; path_offset < num_timesteps; ++path_offset) {
-  
-    // Check if the first or last frequency in this path is out of bounds
-    if (drift_block>=0) {
-      int last_freq = num_freqs - 1 - ((num_timesteps - 1) * drift_block + path_offset) - Nbox;
-      if (freq > last_freq) {
-        return;
-      }
-    } else {
-      int first_freq = -((num_timesteps - 1) * drift_block + path_offset) + Nbox;
-      if (freq < first_freq) {
-        return;
-      }
-    }
-
-    // // Incorrect approach
-    // // Check if the last frequency in this path is out of bounds
-    // int last_freq = (num_timesteps - 1) * drift_block + path_offset + freq;
-    // if (last_freq < 0 || last_freq >= num_freqs) {
-    //   // No more of these paths can be valid, either
-    //   return;
-    // }
-
-    float path_snr = (path_sums[num_freqs * path_offset + freq]*path_scale - mu)*sigma_scale[freq];
-    if (path_snr > top_path_snrs[freq]) {
-      top_path_snrs[freq] = path_snr;
-      top_drift_blocks[freq] = drift_block;
-      top_path_offsets[freq] = path_offset;
-      top_path_Nbox[freq] = Nbox;
-    }
-  }
-}
-
 __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_timesteps, int num_freqs,
                                 int path_offset, int drift_block, float mu, float* sigma_scale, int Nbox,
                                 float* top_path_snrs, int* top_drift_blocks, int* top_path_offsets,
@@ -100,7 +54,7 @@ __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_times
   if (freq < 0 || freq >= num_freqs) {
     return;
   }
-  // examines single time step (single line) of DD output after boxcar filtering
+  // examines single time step (single line=constant df/dt value) of DD output after boxcar filtering
   // and updates peak snr for each frequency
   // mu is nominal mean after equalization across band 
   // sigma_scale[freq] = sqrt(Nbox)/sigma[freq] typically
@@ -561,9 +515,19 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float BB_det_threshold_norm = BB_det_threshold*sqrt(2*n_avg);
   float BB_subband_detected[N_SUBBAND_MAX];
   int BB_subband_prelim_det_count = 0;
+  float *subband_std_BB_det;
   
+  #define USE_NO_CLIP 0
+  #if USE_NO_CLIP
+    printf("Using unclipped stats for BB det");
+    subband_std_BB_det = subband_std_no_clip;
+  #else
+    printf("Using sigma clipped stats for BB det");
+    subband_std_BB_det = cpu_subband_std;
+  #endif
+
   for (int i_band=0; i_band<n_subband; i_band++) {
-    if (cpu_subband_std[i_band] > BB_det_threshold) {
+    if (subband_std_BB_det[i_band] > BB_det_threshold) {
       BB_subband_detected[i_band] = 1.0;
       BB_subband_prelim_det_count++;
     } else {
@@ -771,7 +735,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
     // Do boxcar filtering for each line of taylor sums and update SNR values
 
-    #define DO_BOXCAR 0
+    #define DO_BOXCAR 1
     #if DO_BOXCAR
       n_Nbox = gen_Nbox_list1(Nbox_list, drift_block, max_Nbox_bw);
     #else
@@ -792,7 +756,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
       int Nbox = Nbox_list[i_Nbox];
       
-      float sqrtNbox = sqrt(Nbox);
+      // float sqrtNbox = sqrt(Nbox);
+      float sqrtNbox = pow(Nbox,.40);
+
       gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
                                 gpu_std_vector, sqrtNbox, num_channels);
 
@@ -884,9 +850,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
 
-    int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
-    std_dev = cpu_subband_std[i_band];
-  
+    // int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
+    
     float candidate_path_snr = snr_threshold;
 
     for (int j = 0; j < window_size; ++j) {
@@ -928,8 +893,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         double total_drift_MHz = tsamp*num_timesteps*drift_rate*1e-6;
         double freq_MHz2 = freq_MHz1 + total_drift_MHz;
         double freq_MHz_ctr = (freq_MHz1+freq_MHz2)/2.;
-        // double freq_MHz1 = freq_MHz_ctr - fabs(total_drift_MHz)/2.;
-        // double freq_MHz2 = freq_MHz_ctr + fabs(total_drift_MHz)/2.;
         float power = 0.;
  
         DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2,
