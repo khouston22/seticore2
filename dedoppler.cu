@@ -15,6 +15,16 @@
 #define LOG2_MAX_NBOX_P2 (6)  // determines maximum memory reqts for boxcar averaging of DD sums
 #include "boxcar_sum.h"
 
+// Nominal number of subbands, unless Nf_subband is too low
+#define N_SUBBAND_NOMINAL 128
+#define N_SUBBAND_MIN 32
+// Minimum number of freq bins per subband - for low SNR variability
+#define NF_SUBBAND_MIN 4000
+
+#define DC_REPLACE_ENABLE 1
+#define DC_MEAN_PTS 40
+#define DC_REPLACE_OFS 15
+
 #include "detection_fns.h"
 
 /*
@@ -194,12 +204,12 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
   cudaMallocHost(&cpu_mu_std_work, 3*num_channels*sizeof(float));
   checkCuda("mu std work malloc");
 
-  cudaMalloc(&gpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
-  cudaMallocHost(&cpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
+  cudaMalloc(&gpu_subband_mean, N_SUBBAND_NOMINAL*sizeof(float));
+  cudaMallocHost(&cpu_subband_mean, N_SUBBAND_NOMINAL*sizeof(float));
   checkCuda("subband_mean malloc");
 
-  cudaMalloc(&gpu_subband_std, N_SUBBAND_MAX*sizeof(float));
-  cudaMallocHost(&cpu_subband_std, N_SUBBAND_MAX*sizeof(float));
+  cudaMalloc(&gpu_subband_std, N_SUBBAND_NOMINAL*sizeof(float));
+  cudaMallocHost(&cpu_subband_std, N_SUBBAND_NOMINAL*sizeof(float));
   checkCuda("subband_std malloc");
 }
 
@@ -381,13 +391,18 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   ** Compute mean & std for subbands, first pass
   */
   
-  int n_subband = N_SUBBAND;
+  int n_subband = N_SUBBAND_NOMINAL;
   int Nf_subband = num_channels/n_subband;
-  if (Nf_subband<NF_SUBBAND_MIN) {
-    n_subband = MAX(1,num_channels/NF_SUBBAND_MIN);
+  while ((Nf_subband<NF_SUBBAND_MIN) || (n_subband==N_SUBBAND_MIN)) {
+    n_subband = MAX(N_SUBBAND_MIN,n_subband/2);
     Nf_subband = num_channels/n_subband;
   }
-  float subband_limit[N_SUBBAND_MAX];
+  if (Nf_subband<NF_SUBBAND_MIN) {
+    printf("Warning: #subbands=%d, freq bins per subband=%d vs. %d desired\n",
+            n_subband,Nf_subband,NF_SUBBAND_MIN);
+  }
+
+  float subband_limit[N_SUBBAND_NOMINAL];
   float shear_constant = 2.3;
   float *subband_work;
   subband_work = (float *) malloc(num_channels*sizeof(float));  // allow for max size for one subband
