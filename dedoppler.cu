@@ -15,10 +15,11 @@
 #define LOG2_MAX_NBOX_P2 (6)  // determines maximum memory reqts for boxcar averaging of DD sums
 #include "boxcar_sum.h"
 
-#define N_SUBBAND 128
-#define N_SUBBAND_MAX 256
+// Nominal number of subbands, unless Nf_subband is too low
+#define N_SUBBAND_NOMINAL 128
+#define N_SUBBAND_MIN 32
 // Minimum number of freq bins per subband - for low SNR variability
-#define NF_SUBBAND_MIN 8192
+#define NF_SUBBAND_MIN 4000
 
 #define DC_REPLACE_ENABLE 1
 #define DC_MEAN_PTS 40
@@ -157,12 +158,12 @@ Dedopplerer::Dedopplerer(int num_timesteps, int num_channels, double foff, doubl
   cudaMallocHost(&cpu_mu_std_work, 3*num_channels*sizeof(float));
   checkCuda("mu std work malloc");
 
-  cudaMalloc(&gpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
-  cudaMallocHost(&cpu_subband_mean, N_SUBBAND_MAX*sizeof(float));
+  cudaMalloc(&gpu_subband_mean, N_SUBBAND_NOMINAL*sizeof(float));
+  cudaMallocHost(&cpu_subband_mean, N_SUBBAND_NOMINAL*sizeof(float));
   checkCuda("subband_mean malloc");
 
-  cudaMalloc(&gpu_subband_std, N_SUBBAND_MAX*sizeof(float));
-  cudaMallocHost(&cpu_subband_std, N_SUBBAND_MAX*sizeof(float));
+  cudaMalloc(&gpu_subband_std, N_SUBBAND_NOMINAL*sizeof(float));
+  cudaMallocHost(&cpu_subband_std, N_SUBBAND_NOMINAL*sizeof(float));
   checkCuda("subband_std malloc");
 }
 
@@ -354,14 +355,19 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   ** Compute mean & std for subbands, first pass
   */
   
-  int n_subband = N_SUBBAND;
+  int n_subband = N_SUBBAND_NOMINAL;
   int Nf_subband = num_channels/n_subband;
-  if (Nf_subband<NF_SUBBAND_MIN) {
-    n_subband = MAX(1,num_channels/NF_SUBBAND_MIN);
+  while ((Nf_subband<NF_SUBBAND_MIN) || (n_subband==N_SUBBAND_MIN)) {
+    n_subband = MAX(N_SUBBAND_MIN,n_subband/2);
     Nf_subband = num_channels/n_subband;
   }
-  float subband_limit[N_SUBBAND_MAX];
-  // float shear_constant = 2.3;
+  if (Nf_subband<NF_SUBBAND_MIN) {
+    printf("Warning: #subbands=%d, freq bins per subband=%d vs. %d desired\n",
+            n_subband,Nf_subband,NF_SUBBAND_MIN);
+  }
+
+  float subband_limit[N_SUBBAND_NOMINAL];
+  
   float shear_constant = 3.0;
   float *subband_work;
   subband_work = (float *) malloc(num_channels*sizeof(float));  // allow for max size for one subband
@@ -376,13 +382,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                 subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
   
   // save first pass mean data
-  float subband_mean0[N_SUBBAND_MAX];
+  float subband_mean0[N_SUBBAND_NOMINAL];
   memcpy(subband_mean0,cpu_subband_mean,n_subband*sizeof(float));
-  float subband_mean0_min=subband_mean0[0];
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    subband_mean0_min = MIN(subband_mean0[i_band],subband_mean0_min);
-  }
-
+  
   // Check overall mean & std with just one subband (entire coarse channel)
   // mu/std ratio will be poor match to chi-square
 
@@ -410,7 +412,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   ** Scale input data in GPU to unit mean by interpolation
   */
 
-  
   cudaMemcpy(gpu_subband_mean,cpu_subband_mean,n_subband*sizeof(float),cudaMemcpyHostToDevice);
   checkCuda("cudaMemcpy-gpu_subband_mean");
   float* gpu_mu_vector = &gpu_mu_std_work[0];
@@ -446,19 +447,21 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   
   multipass_subband_mean_std(cpu_column_sums,num_channels,n_subband,shear_constant,
                 subband_work,cpu_subband_mean,cpu_subband_std,subband_limit);
+
+  float subband_mean_min = find_min(cpu_subband_mean, n_subband);
   
   // determine mean and std in subbands for with no clipping
 
-  float subband_mean_no_clip[N_SUBBAND_MAX];
-  float subband_std_no_clip[N_SUBBAND_MAX];
+  float subband_mean_no_clip[N_SUBBAND_NOMINAL];
+  float subband_std_no_clip[N_SUBBAND_NOMINAL];
   bool do_limit = false;
   calc_subband_mean_std(cpu_column_sums,num_channels,n_subband,do_limit,subband_limit,subband_work,
                 subband_mean_no_clip,subband_std_no_clip);
 
   // estimate average spectral kurtosis of subbands
 
-  float subband_SK[N_SUBBAND_MAX];
-  float subband_SK_no_clip[N_SUBBAND_MAX];
+  float subband_SK[N_SUBBAND_NOMINAL];
+  float subband_SK_no_clip[N_SUBBAND_NOMINAL];
   float subband_SK_mean, subband_SK_std;
   float subband_SK_no_clip_mean, subband_SK_no_clip_std;
   
@@ -483,8 +486,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   #endif
 
   float subband_std_mean_nominal = 1.0/sqrt(2*n_avg);
-  float subband_std_mean_ratio[N_SUBBAND_MAX];
-  // float subband_std_mean_ratio_no_clip[N_SUBBAND_MAX];
+  float subband_std_mean_ratio[N_SUBBAND_NOMINAL];
+  // float subband_std_mean_ratio_no_clip[N_SUBBAND_NOMINAL];
   
   for (int i_band=0; i_band<n_subband; i_band++) {
     subband_std_mean_ratio[i_band] = cpu_subband_std[i_band]/cpu_subband_mean[i_band]/subband_std_mean_nominal;
@@ -513,7 +516,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float BB_z_det = 5.;
   float BB_det_threshold = 1.05/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
   float BB_det_threshold_norm = BB_det_threshold*sqrt(2*n_avg);
-  float BB_subband_detected[N_SUBBAND_MAX];
+  float BB_subband_detected[N_SUBBAND_NOMINAL];
   int BB_subband_prelim_det_count = 0;
   float *subband_std_BB_det;
   
@@ -592,7 +595,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   // cluster and record BB hits
 
-  # define N_BB_DET_MAX (N_SUBBAND_MAX/2)
+  # define N_BB_DET_MAX (N_SUBBAND_NOMINAL/2)
   int BB_det_idx = -1;
   int BB_det_sb1[N_BB_DET_MAX];
   int BB_det_sb2[N_BB_DET_MAX];
@@ -627,18 +630,26 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       int i_band_ctr = (BB_det_sb1[BB_det_idx]+BB_det_sb2[BB_det_idx])/2;
       BB_fctr_MHz[BB_det_idx] = f0_sb_MHz + (i_band_ctr)*df_sb_MHz;
       BB_BW_MHz[BB_det_idx] = BB_f2_MHz[BB_det_idx] - BB_f1_MHz[BB_det_idx];
-      BB_SNR[BB_det_idx] = subband_mean0[i_band_ctr]/subband_mean0_min;  // hack
     } else {
       in_BB_cluster = false;
     }
   }
   int N_BB_det = BB_det_idx + 1;
 
+  for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
+    int i_BB_det1 = BB_det_sb1[i_BB_det]*Nf_subband;
+    int n_BB_pts = (BB_det_sb2[i_BB_det]-BB_det_sb1[i_BB_det]+1)*Nf_subband;
+    float peak_value = find_max(&cpu_column_sums[i_BB_det1], n_BB_pts);
+    int i_band1 = BB_det_sb1[i_BB_det];
+    BB_SNR[i_BB_det] = (peak_value-cpu_subband_mean[i_band1])/cpu_subband_std[i_band1];  // rough estimate
+  }
+
   #if 1
     for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
-      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, SNR %5.1f\n",
+      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, SNR %5.2f dB\n",
             i_BB_det,BB_det_sb1[i_BB_det],BB_det_sb2[i_BB_det],
-            BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],BB_fctr_MHz[i_BB_det],BB_BW_MHz[i_BB_det]*1e3,BB_SNR[i_BB_det]);
+            BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],BB_fctr_MHz[i_BB_det],BB_BW_MHz[i_BB_det]*1e3,
+            10.*log10(BB_SNR[i_BB_det]));
     }
   #endif
 
@@ -899,8 +910,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
               drift_bins, drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps, power);
 
         if (print_hits) {
-          printf("hit: chnl %d sb %3d %8d %10.3f MHz %6.2f Hz/sec, %5.2f dB SNR\n",
-                  coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,hit.freq_MHz_ctr, drift_rate, snr_db);
+          printf("hit: chnl %d sb %3d %8d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, \n",
+                  coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,hit.freq_MHz_ctr,drift_rate,snr_db);
           // cout << "hit: " << hit.toString() << endl;
         }
         output->push_back(hit);

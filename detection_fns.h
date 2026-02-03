@@ -21,6 +21,10 @@ void calc_mean_std_dev(const float* x, int n, float *mean, float *std_dev);
 
 void calc_mean_std_dev2(const float* x, int n, float *mean, float *std_dev);
 
+float find_max(const float* x, int n);
+
+float find_min(const float* x, int n);
+
 void calc_subband_mean_std(const float* x_sg, int Nf, int n_subband, bool do_limit, 
                   float *subband_limit, float *work, float *subband_mean, float *subband_std);
 

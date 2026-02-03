@@ -239,6 +239,24 @@ void calc_mean_std_dev2(const float* x, int n, float *mean, float *std_dev)
   *std_dev = sqrt((sum_x2 - n*(*mean)*(*mean))/(n-1));
 }
 
+float find_max(const float* x, int n) 
+{
+  float x_max = x[0];
+  for (int i = 1; i < n; i++) {
+    x_max = MAX(x_max,x[i]);
+  }
+  return x_max;
+}
+
+float find_min(const float* x, int n) 
+{
+  float x_min = x[0];
+  for (int i = 1; i < n; i++) {
+    x_min = MIN(x_min,x[i]);
+  }
+  return x_min;
+}
+
 void DC_replace(float* x, int DC_replace_ofs, int DC_mean_pts) 
 {
     // remove DC bins - replace by adjacent mean
