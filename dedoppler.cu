@@ -658,7 +658,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   #define ENABLE_BB_HITS_IN_DAT 1
   #if ENABLE_BB_HITS_IN_DAT
     for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
-      int freq_idx =0;
+      int freq_idx = BB_det_sb1[i_BB_det]*Nf_subband;
       int drift_bins = 0;
       float drift_rate = 0.;
       DedopplerHit hit(metadata, freq_idx, BB_fctr_MHz[i_BB_det], BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],
