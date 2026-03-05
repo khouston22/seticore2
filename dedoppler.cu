@@ -591,7 +591,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
       int Nbox = Nbox_list[i_Nbox];
       
-      float sqrtNbox = sqrt(Nbox);
+      // float sqrtNbox = sqrt(Nbox);
+      float sqrtNbox = pow(Nbox,.40);
+
       gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
                                 gpu_std_vector, sqrtNbox, num_channels);
 
