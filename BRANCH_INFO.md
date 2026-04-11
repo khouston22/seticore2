@@ -45,7 +45,9 @@ Addition of broadband (BB) signal detection.  The subband statistics computed fo
 
 Within a BB subband, we can change the detection criteria for narrowband (NB) signals of interest so as to avoid declaring a large number of spurious NB detections.  For sc4, the subband std/mean estimate is increased by a factor of 10 (effectively increasing the detection threshold by a factor of 10), which prevents most NB detections from occurring in BB regions.
 
-Additional changes TBD.
+## sc5
+
+Experimental branch: additional changes TBD.
 
 
 Note that after switching branches ("git checkout branch_name"), it is necessary to recompile ("meson compile").
