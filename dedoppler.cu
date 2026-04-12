@@ -671,7 +671,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   for (int i_band=0; i_band<n_subband; i_band++) {
     if (BB_subband_detected[i_band]>0.) {
-      cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band]*10;  
+      // cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band]*10;  
+      cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band];  
     }
   }
 
