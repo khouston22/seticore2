@@ -49,5 +49,5 @@ __global__ void gpu_zero_mean_unit_std(float* x, float* mu, float * sigma, int n
 
 __global__ void gpu_local_mean_scale(float* x, float* mu, int n_freq);
 
-__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float sqrtNbox, int n_freq);
+__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float Nbox_gain, int n_freq);
 

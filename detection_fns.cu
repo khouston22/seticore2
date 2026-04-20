@@ -74,7 +74,7 @@ void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_fr
   }
 }
 
-/* interpolate subband mean or std values to full values over all freqs */
+/* linearly interpolate subband mean or std values to full values over all freqs */
 
 __global__ void gpu_subband_interpolate(float* x, int n_freq, float* x_subband, int n_subband)
 {
@@ -121,18 +121,17 @@ __global__ void gpu_local_mean_scale(float* x, float* mu, int n_freq)
 }
 
 /* 
-scale a chi-square spectrum line to unit mean 
-sigma_scale[f] = sqrtNbox/sigma[f]
+sigma_scale[f] = Nbox_gain/sigma[f]
 */
 
-__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float sqrtNbox, int n_freq)
+__global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float Nbox_gain, int n_freq)
 {
   int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
   if (i_freq < 0 || i_freq >= n_freq) {
     return;
   }
 
-  sigma_scale[i_freq] = (sqrtNbox/sigma[i_freq]);
+  sigma_scale[i_freq] = (Nbox_gain/sigma[i_freq]);
 }
 
 

@@ -473,12 +473,12 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   calc_mean_std_dev(subband_SK_no_clip,n_subband,&subband_SK_no_clip_mean,&subband_SK_no_clip_std);
   
   #if 1
-    printf("chnl %d n_subband=%d mean values after scale (x1000):\n",coarse_channel,n_subband);
+    printf("chnl %d n_subband=%d sigma clipped mean values after scale (x1000):\n",coarse_channel,n_subband);
     print_x_segment(cpu_subband_mean, n_subband, 1000.0);
-    printf("chnl %d n_subband=%d std  values after scale (x1000):\n",coarse_channel,n_subband);
+    printf("chnl %d n_subband=%d sigma clipped std  values after scale (x1000):\n",coarse_channel,n_subband);
     print_f_x_segment(cpu_subband_std , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
   #endif
-  #if 1
+  #if 0
     // printf("chnl %d n_subband=%d no clip mean values after scale (x1000):\n",coarse_channel,n_subband);
     // print_x_segment(subband_mean_no_clip, n_subband, 1000.0);
     printf("chnl %d n_subband=%d no clip std  values after scale (x1000):\n",coarse_channel,n_subband);
@@ -495,10 +495,19 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   }
 
   #if 1
-    printf("chnl %d n_subband=%d std/mean values over expected after scale (x100):\n",coarse_channel,n_subband);
+    printf("chnl %d n_subband=%d sigma clipped std/mean values over expected after scale (x100):\n",coarse_channel,n_subband);
     print_f_x_segment(subband_std_mean_ratio, n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
     // printf("chnl %d n_subband=%d no clip std/mean values over expected after scale (x100):\n",coarse_channel,n_subband);
     // print_f_x_segment(subband_std_mean_ratio_no_clip, n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
+  #endif
+
+  #if 1
+    printf("chnl %d n_subband=%d SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
+            coarse_channel,n_subband,subband_SK_mean,subband_SK_std);
+    print_f_x_segment(subband_SK , n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
+    // printf("chnl %d n_subband=%d no clip SK  values after scale (x1000), mean=%.3f, std=%.3f:\n",
+    //         coarse_channel,n_subband,subband_SK_no_clip_mean,subband_SK_no_clip_std);
+    // print_f_x_segment(subband_SK_no_clip , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
   #endif
 
   // Check overall mean & std with just one subband (entire coarse channel) after normalization
@@ -522,10 +531,10 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   
   #define USE_NO_CLIP 0
   #if USE_NO_CLIP
-    printf("Using unclipped stats for BB det");
+    printf("Using unclipped stats for BB det\n");
     subband_std_BB_det = subband_std_no_clip;
   #else
-    printf("Using sigma clipped stats for BB det");
+    printf("Using sigma clipped stats for BB det\n");
     subband_std_BB_det = cpu_subband_std;
   #endif
 
@@ -542,9 +551,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       if (BB_subband_prelim_det_count == 0) {
         printf("Broadband detections, threshold=%.3f (%.3f): No BB detections\n",BB_det_threshold,BB_det_threshold_norm);
       } else {
-        printf("Broadband detections, threshold=%.3f (%.3f): %d subband detections\n",BB_det_threshold,BB_det_threshold_norm,
-                  BB_subband_prelim_det_count);
-        print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
+        // printf("Broadband detections, threshold=%.3f (%.3f): %d subband detections\n",BB_det_threshold,BB_det_threshold_norm,
+        //           BB_subband_prelim_det_count);
+        // print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
       }
   #endif
 
@@ -583,14 +592,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
           n_subband_dilation,BB_det_threshold,BB_det_threshold_norm,BB_subband_det_count);
         print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
       }
-  #endif
-  #if 0
-    printf("chnl %d n_subband=%d SK  values after scale (x1000), mean=%.3f, std=%.3f:\n",
-            coarse_channel,n_subband,subband_SK_mean,subband_SK_std);
-    print_f_x_segment(subband_SK , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
-    printf("chnl %d n_subband=%d no clip SK  values after scale (x1000), mean=%.3f, std=%.3f:\n",
-            coarse_channel,n_subband,subband_SK_no_clip_mean,subband_SK_no_clip_std);
-    print_f_x_segment(subband_SK_no_clip , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
   #endif
 
   // cluster and record BB hits
@@ -771,6 +772,13 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       // float sqrtNbox = sqrt(Nbox);
       float sqrtNbox = pow(Nbox,.40);
 
+      // float sqrtNbox = pow(Nbox,.25);
+      // float sqrtNbox = pow(Nbox,.30);
+      // float sqrtNbox = pow(Nbox,.35);
+      // float sqrtNbox = pow(Nbox,.40);
+      // float sqrtNbox = pow(Nbox,.45);
+      // float sqrtNbox = pow(Nbox,.50);
+    
       gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
                                 gpu_std_vector, sqrtNbox, num_channels);
 
