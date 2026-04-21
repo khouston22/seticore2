@@ -394,17 +394,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   printf("Coarse Channel %d Single Subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
             coarse_channel,mu,std_dev,mu/std_dev,sqrt(2*n_avg));
 
-  /*
-  ** Run special test averaging increasing durations, verify non-coh gain
-  */
-
-  #if 0
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 1);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 8);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 32);
-    ncoh_avg_test(input.sg_data, num_channels, num_timesteps, n_sti, 128);
-  #endif
-
+  
   double t_stats_sec = (timeInMS() - start_ms)*.001;
   start_ms = timeInMS();
  
@@ -460,17 +450,17 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   // estimate average spectral kurtosis of subbands
 
-  float subband_SK[N_SUBBAND_NOMINAL];
-  float subband_SK_no_clip[N_SUBBAND_NOMINAL];
-  float subband_SK_mean, subband_SK_std;
-  float subband_SK_no_clip_mean, subband_SK_no_clip_std;
+  float BlkSK_clip[N_SUBBAND_NOMINAL];
+  float BlkSK_no_clip[N_SUBBAND_NOMINAL];
+  float BlkSK_clip_mean, BlkSK_clip_std;
+  float BlkSK_no_clip_mean, BlkSK_no_clip_std;
   
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    subband_SK[i_band] = (2*Nf_subband*n_avg+1.)/Nf_subband*pow(cpu_subband_std[i_band]/cpu_subband_mean[i_band],2.0);
-    subband_SK_no_clip[i_band] = (2*Nf_subband*n_avg+1.)/Nf_subband*pow(subband_std_no_clip[i_band]/subband_mean_no_clip[i_band],2.0);
+  for (int i_subband=0; i_subband<n_subband; i_subband++) {
+    BlkSK_clip[i_subband] = (2*Nf_subband*n_avg+1.)/Nf_subband*pow(cpu_subband_std[i_subband]/cpu_subband_mean[i_subband],2.0);
+    BlkSK_no_clip[i_subband] = (2*Nf_subband*n_avg+1.)/Nf_subband*pow(subband_std_no_clip[i_subband]/subband_mean_no_clip[i_subband],2.0);
   }
-  calc_mean_std_dev(subband_SK,n_subband,&subband_SK_mean,&subband_SK_std);
-  calc_mean_std_dev(subband_SK_no_clip,n_subband,&subband_SK_no_clip_mean,&subband_SK_no_clip_std);
+  calc_mean_std_dev(BlkSK_clip,n_subband,&BlkSK_clip_mean,&BlkSK_clip_std);
+  calc_mean_std_dev(BlkSK_no_clip,n_subband,&BlkSK_no_clip_mean,&BlkSK_no_clip_std);
   
   #if 1
     printf("chnl %d n_subband=%d sigma clipped mean values after scale (x1000):\n",coarse_channel,n_subband);
@@ -489,9 +479,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float subband_std_mean_ratio[N_SUBBAND_NOMINAL];
   // float subband_std_mean_ratio_no_clip[N_SUBBAND_NOMINAL];
   
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    subband_std_mean_ratio[i_band] = cpu_subband_std[i_band]/cpu_subband_mean[i_band]/subband_std_mean_nominal;
-    // subband_std_mean_ratio_no_clip[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band]/subband_std_mean_nominal;
+  for (int i_subband=0; i_subband<n_subband; i_subband++) {
+    subband_std_mean_ratio[i_subband] = cpu_subband_std[i_subband]/cpu_subband_mean[i_subband]/subband_std_mean_nominal;
+    // subband_std_mean_ratio_no_clip[i_subband] = subband_std_no_clip[i_subband]/subband_mean_no_clip[i_subband]/subband_std_mean_nominal;
   }
 
   #if 1
@@ -502,12 +492,12 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   #endif
 
   #if 1
-    printf("chnl %d n_subband=%d SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
-            coarse_channel,n_subband,subband_SK_mean,subband_SK_std);
-    print_f_x_segment(subband_SK , n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
-    // printf("chnl %d n_subband=%d no clip SK  values after scale (x1000), mean=%.3f, std=%.3f:\n",
-    //         coarse_channel,n_subband,subband_SK_no_clip_mean,subband_SK_no_clip_std);
-    // print_f_x_segment(subband_SK_no_clip , n_subband, 1000.0,f0_sb_MHz, df_sb_MHz);
+    printf("chnl %d n_subband=%d clipped SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
+            coarse_channel,n_subband,BlkSK_clip_mean,BlkSK_clip_std);
+    print_f_x_segment(BlkSK_clip , n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
+    printf("chnl %d n_subband=%d no clip SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
+            coarse_channel,n_subband,BlkSK_no_clip_mean,BlkSK_no_clip_std);
+    print_f_x_segment(BlkSK_no_clip , n_subband, 100.0,f0_sb_MHz, df_sb_MHz);
   #endif
 
   // Check overall mean & std with just one subband (entire coarse channel) after normalization
@@ -523,73 +513,78 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   */
 
   float BB_z_det = 5.;
-  float BB_det_threshold = 1.05/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
-  float BB_det_threshold_norm = BB_det_threshold*sqrt(2*n_avg);
+  // float BB_det_threshold = 1.05/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
+  float BB_det_threshold = 1.02/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
+  // float BB_det_threshold = 1.00/sqrt(2*n_avg)*(1.+BB_z_det/sqrt(Nf_subband));
+  float BB_det_threshold_SK = pow(BB_det_threshold,2.0)*2*n_avg;
   float BB_subband_detected[N_SUBBAND_NOMINAL];
   int BB_subband_prelim_det_count = 0;
   float *subband_std_BB_det;
+  float *BlkSK;
   
-  #define USE_NO_CLIP 0
+  #define USE_NO_CLIP 1
   #if USE_NO_CLIP
     printf("Using unclipped stats for BB det\n");
     subband_std_BB_det = subband_std_no_clip;
+    BlkSK = BlkSK_no_clip;
   #else
     printf("Using sigma clipped stats for BB det\n");
     subband_std_BB_det = cpu_subband_std;
+    BlkSK = BlkSK_clip;
   #endif
 
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    if (subband_std_BB_det[i_band] > BB_det_threshold) {
-      BB_subband_detected[i_band] = 1.0;
+  for (int i_subband=0; i_subband<n_subband; i_subband++) {
+    if (subband_std_BB_det[i_subband] > BB_det_threshold) {
+      BB_subband_detected[i_subband] = 1.0;
       BB_subband_prelim_det_count++;
     } else {
-      BB_subband_detected[i_band] = 0.0;    
+      BB_subband_detected[i_subband] = 0.0;    
     }
   }
 
   #if 1
-      if (BB_subband_prelim_det_count == 0) {
-        printf("Broadband detections, threshold=%.3f (%.3f): No BB detections\n",BB_det_threshold,BB_det_threshold_norm);
-      } else {
-        // printf("Broadband detections, threshold=%.3f (%.3f): %d subband detections\n",BB_det_threshold,BB_det_threshold_norm,
-        //           BB_subband_prelim_det_count);
-        // print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
-      }
+    if (BB_subband_prelim_det_count == 0) {
+      printf("Broadband detections, threshold=%.3f (SK %.2f): No BB detections\n",BB_det_threshold,BB_det_threshold_SK);
+    } else {
+      // printf("Broadband detections, threshold=%.3f (SK %.2f): %d subband detections\n",BB_det_threshold,BB_det_threshold_SK,
+      //           BB_subband_prelim_det_count);
+      // print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
+    }
   #endif
 
   // Apply dilation of BB detection at edges = expand BB regions by n_subband_dilation subbands
 
   int n_subband_dilation = 3;
   // lower edges
-  for (int i_band=n_subband_dilation; i_band<n_subband; i_band++) {
-    if ( (BB_subband_detected[i_band]>0.) & (BB_subband_detected[i_band-1]==0.) ) {
+  for (int i_subband=n_subband_dilation; i_subband<n_subband; i_subband++) {
+    if ( (BB_subband_detected[i_subband]>0.) & (BB_subband_detected[i_subband-1]==0.) ) {
       for (int i_edge=1; i_edge<=n_subband_dilation; i_edge++) {
-        BB_subband_detected[i_band-i_edge] = 1.0;
+        BB_subband_detected[i_subband-i_edge] = 1.0;
       }
     }
   }
   // upper edges
-  for (int i_band=n_subband-n_subband_dilation-1; i_band>=0; i_band--) {
-    if ( (BB_subband_detected[i_band]>0.) & (BB_subband_detected[i_band+1]==0.) ) {
+  for (int i_subband=n_subband-n_subband_dilation-1; i_subband>=0; i_subband--) {
+    if ( (BB_subband_detected[i_subband]>0.) & (BB_subband_detected[i_subband+1]==0.) ) {
       for (int i_edge=1; i_edge<=n_subband_dilation; i_edge++) {
-        BB_subband_detected[i_band+i_edge] = 1.0;
+        BB_subband_detected[i_subband+i_edge] = 1.0;
       }
     }
   }
   int BB_subband_det_count = 0;
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    if (BB_subband_detected[i_band]>0.) {
+  for (int i_subband=0; i_subband<n_subband; i_subband++) {
+    if (BB_subband_detected[i_subband]>0.) {
       BB_subband_det_count++;
     }
   }
   
   #if 1
       if (BB_subband_det_count == 0) {
-        printf("Broadband detections after dilation (%d), threshold=%.3f (%.3f): No BB detections\n",
-                n_subband_dilation,BB_det_threshold,BB_det_threshold_norm);
+        printf("Broadband detections after dilation (%d), threshold=%.3f (SK %.2f): No BB detections\n",
+                n_subband_dilation,BB_det_threshold,BB_det_threshold_SK);
       } else {
-        printf("Broadband detections after dilation (%d), threshold=%.3f (%.3f): %d subband detections\n",
-          n_subband_dilation,BB_det_threshold,BB_det_threshold_norm,BB_subband_det_count);
+        printf("Broadband detections after dilation (%d), threshold=%.3f (SK %.2f): %d subband detections\n",
+          n_subband_dilation,BB_det_threshold,BB_det_threshold_SK,BB_subband_det_count);
         print_f_x_segment((float *) BB_subband_detected , n_subband, 1.0,f0_sb_MHz, df_sb_MHz);
       }
   #endif
@@ -607,29 +602,29 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float BB_SNR[N_BB_DET_MAX];
   bool in_BB_cluster = false;
 
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    if (BB_subband_detected[i_band]>0.) {
+  for (int i_subband=0; i_subband<n_subband; i_subband++) {
+    if (BB_subband_detected[i_subband]>0.) {
       if (!in_BB_cluster) {
         // new cluster
         in_BB_cluster = true;
         BB_det_idx++;
-        BB_det_sb1[BB_det_idx] = i_band;
+        BB_det_sb1[BB_det_idx] = i_subband;
         if (df_sb_MHz>=0.) {
-          BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_band-0.5)*df_sb_MHz;
+          BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_subband-0.5)*df_sb_MHz;
         } else {
-          BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_band-0.5)*df_sb_MHz;
+          BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_subband-0.5)*df_sb_MHz;
         }
       } 
       // whether new or existing cluster, assume this is last point
-      BB_det_sb2[BB_det_idx] = i_band;
+      BB_det_sb2[BB_det_idx] = i_subband;
       if (df_sb_MHz>=0.) {
-        BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_band+0.5)*df_sb_MHz;
+        BB_f2_MHz[BB_det_idx] = f0_sb_MHz + (i_subband+0.5)*df_sb_MHz;
       } else {
-        BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_band+0.5)*df_sb_MHz;
+        BB_f1_MHz[BB_det_idx] = f0_sb_MHz + (i_subband+0.5)*df_sb_MHz;
       }
       // Assign SNR corresponding to center point
-      int i_band_ctr = (BB_det_sb1[BB_det_idx]+BB_det_sb2[BB_det_idx])/2;
-      BB_fctr_MHz[BB_det_idx] = f0_sb_MHz + (i_band_ctr)*df_sb_MHz;
+      int i_subband_ctr = (BB_det_sb1[BB_det_idx]+BB_det_sb2[BB_det_idx])/2;
+      BB_fctr_MHz[BB_det_idx] = f0_sb_MHz + (i_subband_ctr)*df_sb_MHz;
       BB_BW_MHz[BB_det_idx] = BB_f2_MHz[BB_det_idx] - BB_f1_MHz[BB_det_idx];
     } else {
       in_BB_cluster = false;
@@ -641,8 +636,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     int i_BB_det1 = BB_det_sb1[i_BB_det]*Nf_subband;
     int n_BB_pts = (BB_det_sb2[i_BB_det]-BB_det_sb1[i_BB_det]+1)*Nf_subband;
     float peak_value = find_max(&cpu_column_sums[i_BB_det1], n_BB_pts);
-    int i_band1 = BB_det_sb1[i_BB_det];
-    BB_SNR[i_BB_det] = (peak_value-cpu_subband_mean[i_band1])/cpu_subband_std[i_band1];  // rough estimate
+    int i_subband1 = BB_det_sb1[i_BB_det];
+    BB_SNR[i_BB_det] = (peak_value-cpu_subband_mean[i_subband1])/cpu_subband_std[i_subband1];  // rough estimate
   }
 
   #if 1
@@ -670,12 +665,15 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   // revise mean & std in subbands with BB present
 
-  for (int i_band=0; i_band<n_subband; i_band++) {
-    if (BB_subband_detected[i_band]>0.) {
-      // cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band]*10;  
-      cpu_subband_std[i_band] = subband_std_no_clip[i_band]/subband_mean_no_clip[i_band];  
+  #if 1
+    for (int i_subband=0; i_subband<n_subband; i_subband++) {
+      if (BB_subband_detected[i_subband]>0.) {
+        // cpu_subband_std[i_subband] = subband_std_no_clip[i_subband]/subband_mean_no_clip[i_subband]*10;  // +10 dB
+        // cpu_subband_std[i_subband] = subband_std_no_clip[i_subband]/subband_mean_no_clip[i_subband]*1.6;    // +2 dB
+        cpu_subband_std[i_subband] = subband_std_no_clip[i_subband]/subband_mean_no_clip[i_subband];  
+      }
     }
-  }
+  #endif
 
   // generate revised interpolated mu, std, sigma_scale vectors
 
@@ -691,9 +689,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   gpu_subband_interpolate<<<grid_size, CUDA_MAX_THREADS>>>(gpu_std_vector, 
                                   num_channels, gpu_subband_std, n_subband);
   float* gpu_sigma_scale_vector= &gpu_mu_std_work[2*num_channels];
-  float sqrtNbox = 1.;
+  float Nbox_gain = 1.;
   gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
-                                gpu_std_vector, sqrtNbox, num_channels);
+                                gpu_std_vector, Nbox_gain, num_channels);
 
   #if 0
     if (coarse_channel==0) {
@@ -769,18 +767,18 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
       int Nbox = Nbox_list[i_Nbox];
       
-      // float sqrtNbox = sqrt(Nbox);
-      float sqrtNbox = pow(Nbox,.40);
+      // float Nbox_gain = sqrt(Nbox);
+      float Nbox_gain = pow(Nbox,.40);
 
-      // float sqrtNbox = pow(Nbox,.25);
-      // float sqrtNbox = pow(Nbox,.30);
-      // float sqrtNbox = pow(Nbox,.35);
-      // float sqrtNbox = pow(Nbox,.40);
-      // float sqrtNbox = pow(Nbox,.45);
-      // float sqrtNbox = pow(Nbox,.50);
+      // float Nbox_gain = pow(Nbox,.25);
+      // float Nbox_gain = pow(Nbox,.30);
+      // float Nbox_gain = pow(Nbox,.35);
+      // float Nbox_gain = pow(Nbox,.40);
+      // float Nbox_gain = pow(Nbox,.45);
+      // float Nbox_gain = pow(Nbox,.50);
     
       gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
-                                gpu_std_vector, sqrtNbox, num_channels);
+                                gpu_std_vector, Nbox_gain, num_channels);
 
       for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
 
@@ -870,7 +868,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
 
-    // int i_band = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
+    // int i_subband = MIN(n_subband-1,((i+0.5) * window_size)/Nf_subband);
     
     float candidate_path_snr = snr_threshold;
 
@@ -905,22 +903,44 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       double drift_rate = drift_bins * drift_rate_resolution;
       float snr = candidate_path_snr;
       float snr_db = 10*log10(snr);
+      double freq_MHz1 = metadata.fch1 + (coarse_channel*num_channels+candidate_freq) * metadata.foff;
+      double total_drift_MHz = tsamp*num_timesteps*drift_rate*1e-6;
+      double freq_MHz2 = freq_MHz1 + total_drift_MHz;
+      double freq_MHz_ctr = (freq_MHz1+freq_MHz2)/2.;
+
+      int i_subband = candidate_freq/Nf_subband;
+      int candidate_within_BB_segment = BB_subband_detected[i_subband]; 
+      double candidate_BlkSK = BlkSK[i_subband];
+    
+      float power = 0.;
       float drift_tol = .05;
 
-      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift+drift_tol) {
+      bool found_hit = false;
 
-        double freq_MHz1 = metadata.fch1 + (coarse_channel*num_channels+candidate_freq) * metadata.foff;
-        double total_drift_MHz = tsamp*num_timesteps*drift_rate*1e-6;
-        double freq_MHz2 = freq_MHz1 + total_drift_MHz;
-        double freq_MHz_ctr = (freq_MHz1+freq_MHz2)/2.;
-        float power = 0.;
- 
+      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift+drift_tol) {
+        if (0) {
+          found_hit = true;
+        } else {
+          if (candidate_BlkSK<3) {
+            if (candidate_within_BB_segment) {
+              if ((drift_rate<-.6)||(drift_rate>.1)) {
+                found_hit = true;
+              }
+            } else {
+              found_hit = true;
+            }
+          }
+        }
+      }
+
+      if (found_hit) {
         DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2,
-              drift_bins, drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps, power);
+                drift_bins, drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps, power);
 
         if (print_hits) {
-          printf("hit: chnl %d sb %3d %8d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, \n",
-                  coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,hit.freq_MHz_ctr,drift_rate,snr_db);
+          printf("hit: chnl %d sb %3d %8d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK %5.2f (%d), \n",
+                  coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,hit.freq_MHz_ctr,
+                  drift_rate,snr_db,candidate_BlkSK,candidate_within_BB_segment);
           // cout << "hit: " << hit.toString() << endl;
         }
         output->push_back(hit);
