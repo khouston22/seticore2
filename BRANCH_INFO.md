@@ -47,6 +47,20 @@ Within a BB subband, we can change the detection criteria for narrowband (NB) si
 
 ## sc5
 
+BB detection for a subband is based (indirectly) on Block Spectral Kurtosis (BlkSK).  The thresholds for declaring a BB detection have been tightened (BlkSK>1.16), so many more BB detections occur.
+
+The NB detection SNR thresholds within a BB segement are now the same as for non-BB segments, allowing some hits to occur in BB segments.  However, other simple screening criteria for hits within BB segments are applied based on BlkSK and the drift rate, as follows:
+
+    Regardless of BB detection: Reject all if local BlkSK > 3, or |drift_rate| < min_drift from command line
+    If within a BB segment and 1.16 < BlkSK < 3, screen according to drift rate:
+        Reject if -0.6 < drift_rate < +.1
+
+Note that GPS/GNSS satellites produce hits with significant negative drift rates due to satellite orbits.  The drift rate bounds can be tightened for non-LEO bands.
+
+Screening greatly reduces hits in capture files while having small effect on test signals.  This is a proof-of-concept, and works reasonably well.  Ultimately the user will probably want to turn off screening and design a custom ML screening algorithm separate from seticore2.                
+
+## sc6
+
 Experimental branch: additional changes TBD.
 
 

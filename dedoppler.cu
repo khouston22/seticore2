@@ -918,19 +918,25 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       bool found_hit = false;
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift+drift_tol) {
-        if (0) {
-          found_hit = true;
-        } else {
+        #define DO_SCREEN 1
+        // Screening greatly reduces hits in capture files while having small effect on test signals
+        // This is proof-of-concept, user will probably want to design own screening algorithm
+        #if DO_SCREEN
+          // note if candidate_BlkSK>=3 it will be rejected regardless
           if (candidate_BlkSK<3) {
             if (candidate_within_BB_segment) {
               if ((drift_rate<-.6)||(drift_rate>.1)) {
+                // GPS/GNSS signals have significant negative drift rates hence -0.6 negative limit
+                // could tighten to -.1 to .1  rejection for non-GPS/GNSS frequencies
                 found_hit = true;
               }
             } else {
               found_hit = true;
             }
           }
-        }
+        #else
+          found_hit = true;
+        #endif
       }
 
       if (found_hit) {
