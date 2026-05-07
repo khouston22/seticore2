@@ -93,13 +93,19 @@ int dedopplerMode(const po::variables_map& vm) {
   double snr = vm["snr"].as<double>();
   double min_drift = vm.count("min_drift") ? vm["min_drift"].as<double>() : 0.0;
 
+  int i_hit_screen = vm.count("hit_screen") ? vm["hit_screen"].as<int>() : 0;
+  bool do_hit_screen =  i_hit_screen ? true : false;
+  
+  int i_BB_hits_to_dat = vm.count("BB_to_dat") ? vm["BB_to_dat"].as<int>() : 0;
+  bool write_BB_hits_to_dat =  i_BB_hits_to_dat ? true : false;
+  
   cout << "loading input from " << input << endl;
   cout << fmt::format("dedoppler parameters: max_drift={:.2f} min_drift={:.4f} "
                       "snr={:.2f}\n",
                       max_drift, min_drift, snr);
   cout << "writing output to " << output << endl;
   int tstart = time(NULL);
-  runDedoppler(input, output, max_drift, min_drift, snr);
+  runDedoppler(input, output, max_drift, min_drift, snr, do_hit_screen, write_BB_hits_to_dat);
   int tstop = time(NULL);
   cerr << fmt::format("dedoppler elapsed time: {:d}s\n", tstop - tstart);
   return 0;
@@ -170,6 +176,12 @@ int main(int argc, char* argv[]) {
 
       ("snr,s", po::value<double>()->default_value(25.0),
        "minimum SNR to report a hit")
+
+      ("hit_screen", po::value<int>()->default_value(0),
+       "=1 do hit screening using default algorithm")
+
+      ("BB_to_dat", po::value<int>()->default_value(0),
+       "=1 write broadband detections to dat file")
 
       ("recipe_dir", po::value<string>(),
        "the directory to find beamforming recipes in. set this to beamform.")

@@ -127,7 +127,7 @@ void findEvents(const vector<string>& input_filenames, const string& output_file
     // Always scan the first file
     files[0]->loadCoarseChannel(coarse_channel, buffers[0].get());
     dedopplerers[0]->search(*buffers[0], *files[0], NO_BEAM, coarse_channel, max_drift,
-                            0.0, snr_on, &hit_lists[0]);
+                            0.0, snr_on, false, false, &hit_lists[0]);
     removeZeroDriftHits(&hit_lists[0]);
     
     if (hit_lists[0].empty()) {
@@ -140,7 +140,7 @@ void findEvents(const vector<string>& input_filenames, const string& output_file
       bool is_on = i % 2 == 0;
       files[i]->loadCoarseChannel(coarse_channel, buffers[i].get());
       dedopplerers[i]->search(*buffers[i], *files[i], NO_BEAM, coarse_channel, max_drift,
-                              0.0, is_on ? snr_on : snr_off, &hit_lists[i]);
+                              0.0, is_on ? snr_on : snr_off, false, false, &hit_lists[i]);
       if (is_on) {
         removeZeroDriftHits(&hit_lists[i]);
       }

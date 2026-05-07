@@ -28,7 +28,8 @@ using namespace std;
   object that satisfied the FilterbankFile interface, just to provide metadata.
  */
 void runDedoppler(const string& input_filename, const string& output_filename,
-                  double max_drift, double min_drift, double snr_threshold) {
+                  double max_drift, double min_drift, double snr_threshold,
+                  bool do_hit_screen, bool write_BB_hits_to_dat) {
   auto file = loadFilterbankFile(input_filename);
   auto recorder = makeHitRecorder(output_filename, *file.get(), max_drift);
 
@@ -50,7 +51,7 @@ void runDedoppler(const string& input_filename, const string& output_filename,
     file->loadCoarseChannel(coarse_channel, &buffer);
     hits.clear();
     dedopplerer.search(buffer, *file.get(), NO_BEAM, coarse_channel, max_drift, min_drift,
-                       snr_threshold, &hits);
+                       snr_threshold, do_hit_screen, write_BB_hits_to_dat, &hits);
     for (DedopplerHit hit : hits) {        
       recorder->recordHit(hit, buffer.sg_data);
     }

@@ -30,6 +30,12 @@ public:
   // Whether the data we receive has a DC spike
   const bool has_dc_spike;
 
+  // // Whether to apply nominal screening against hits likely to be RFI
+  // bool do_hit_screen;
+
+  // // Whether to write broadband detections to dat file
+  // bool write_BB_hits_to_dat;
+
   bool print_hits;
   
   // Do not round num_timesteps before creating the Dedopplerer
@@ -42,6 +48,7 @@ public:
   void search(const FilterbankBuffer& input, const FilterbankMetadata& metadata,
               int beam, int coarse_channel,
               double max_drift, double min_drift, double snr_threshold,
+              bool do_hit_screen, bool write_BB_hits_to_dat,
               vector<DedopplerHit>* output);
 
   size_t memoryUsage() const;
@@ -88,6 +95,10 @@ private:
   // boxcar averaging pointers to gpu memory blocks
   float *gpu_DD_sums_line, *gpu_p2_path_sums, *gpu_boxcar_work, *gpu_Nbox_path_sum;
   float *cpu_boxcar_work;
+
+  // interpolated mean and std values work
+  float *cpu_stamp_sg;
   
+
 };
 

@@ -282,6 +282,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                          const FilterbankMetadata& metadata,
                          int beam, int coarse_channel,
                          double max_drift, double min_drift, double snr_threshold,
+                         bool do_hit_screen, bool write_BB_hits_to_dat,
                          vector<DedopplerHit>* output) {
   assert(input.num_timesteps == rounded_num_timesteps);  // forces power of two
   assert(input.num_channels == num_channels);
@@ -673,8 +674,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
 
   // Write out broadband hits if enabled
 
-  #define ENABLE_BB_HITS_IN_DAT 1
-  #if ENABLE_BB_HITS_IN_DAT
+  if (write_BB_hits_to_dat) {
     for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
       int freq_idx = BB_det_sb1[i_BB_det]*Nf_subband;
       int drift_bins = 0;
@@ -683,8 +683,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
                   drift_bins, drift_rate, BB_SNR[i_BB_det], 0, coarse_channel, num_timesteps, 0.);
       output->push_back(hit);
     }
-  #endif
-
+  }
+  
   // revise mean & std in subbands with BB present
 
   #if 1
@@ -943,10 +943,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       bool found_hit = false;
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift+drift_tol) {
-        #define DO_SCREEN 1
-        // Screening greatly reduces hits in capture files while having small effect on test signals
-        // This is proof-of-concept, user will probably want to design own screening algorithm
-        #if DO_SCREEN
+        if (do_hit_screen) {
           // note if candidate_BlkSK>=3 it will be rejected regardless
           if (candidate_BlkSK<3) {
             if (candidate_within_BB_segment) {
@@ -959,9 +956,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
               found_hit = true;
             }
           }
-        #else
+        } else {
           found_hit = true;
-        #endif
+        }
       }
 
       if (found_hit) {

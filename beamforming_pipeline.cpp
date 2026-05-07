@@ -238,7 +238,7 @@ void BeamformingPipeline::findHits() {
           // Go find hits
           int existing_size = hits_per_coarse_channel[coarse_channel].size();
           dedopplerer.search(fb_buffer, metadata, beam, coarse_channel, max_drift,
-                             0.0, snr, &hits_per_coarse_channel[coarse_channel]);
+                             0.0, snr, false, false, &hits_per_coarse_channel[coarse_channel]);
           if (record_hits) {
             for (int i = existing_size;
                  i < (int) hits_per_coarse_channel[coarse_channel].size(); ++i) {
