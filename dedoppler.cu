@@ -102,6 +102,28 @@ __global__ void sumColumns(const float* input, float* sums, int num_timesteps, i
   sums[freq] *= scale;
 }
 
+/*
+  Sum the columns of a two-dimensional array.
+  input is a (num_timesteps x num_freqs) array, stored in row-major order.
+  sums is an array of size num_freqs.
+ */
+void sumColumns_cpu(const float* input, float* sums, int num_timesteps, int n_freq) 
+{
+  int in_ofs;
+
+  for (int time = 0; time < num_timesteps; time++) {
+    if (time==0) {
+      for (int freq = 0; freq < n_freq; freq++) {
+        sums[freq] = input[freq];
+      }
+    } else {
+      in_ofs = time*n_freq;
+      for (int freq = 0; freq < n_freq; freq++) {
+        sums[freq] += input[in_ofs++];
+      }
+    }
+  }
+}
 
 /*
   The Dedopplerer encapsulates the logic of dedoppler search. In particular it manages
@@ -848,9 +870,9 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   // windows. Any candidate hit must be the largest within this
   // window.
   // Original seticore 1.0.6:
-  // int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
+  int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
   // Minimum window size to avoid extra spurious detections on single drifting tone:
-  int window_size = 1 * ceil(normalized_max_drift * drift_timesteps);
+  // int window_size = 1 * ceil(normalized_max_drift * drift_timesteps);
   // Will be proportional to max drift rate and total averaging time
   // Will also determine allowable spacing between adjacent hits
   // May want to set window size in Hz at the command line depending on RFI environment
@@ -913,6 +935,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       int candidate_within_BB_segment = BB_subband_detected[i_subband]; 
       double candidate_BlkSK = BlkSK[i_subband];
     
+
+      
       float power = 0.;
       float drift_tol = .05;
 
