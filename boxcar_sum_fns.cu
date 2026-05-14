@@ -184,10 +184,13 @@ int gen_Nbox_list1(int* Nbox_list, int drift_block, int max_Nbox_bw)
     Nbox_drift = -drift_block;
   }
   
+  // Nbox_drift = MAX(Nbox_drift,3);   // force min Nbox=3
+  // Nbox_drift = 2*(Nbox_drift/2)+1;  // force odd, round up
+
   Nbox_list[0] = Nbox_drift;
   n_Nbox = 1;
 
-  // Remaining items are powers of 2 beyond 1.5*Nbox_drift (if applicable)
+  // Remaining items are powers of 2 (+ 1) beyond 1.5*Nbox_drift (if applicable)
 
   float min_Nbox_bw = 1.5*Nbox_drift;
     
@@ -199,7 +202,7 @@ int gen_Nbox_list1(int* Nbox_list, int drift_block, int max_Nbox_bw)
       n_Nbox = n_Nbox_bw - i_bw_min + 2;
 
       for (int i_bw=i_bw_min; i_bw<=n_Nbox_bw; i_bw++) {
-        Nbox_list[i_bw - i_bw_min + 1] = 1 << i_bw; // 2^i_bw
+        Nbox_list[i_bw - i_bw_min + 1] = (1 << i_bw)+1; // 2^i_bw + 1
       }
     }
   }

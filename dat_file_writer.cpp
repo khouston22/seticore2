@@ -43,6 +43,9 @@ DatFileWriter::DatFileWriter(const string& filename,
     "SEFD_freq \t"
     "Coarse_Channel_Number \t"
     "Full_number_of_hits \t"
+    "BlkSK \t"
+    "SK \t"
+    "Max/Min \t"
     "\n"
     "# --------------------------\n";
   file << flush;
@@ -64,6 +67,7 @@ void DatFileWriter::recordHit(DedopplerHit hit, const float* input) {
   file << fmt::format("{}\t{:10.6f}\t{:10.6f}\t{:14.6f}\t{:14.6f}\t{}\t{:14.6f}\t{:14.6f}\t",
                       hit_count, hit.drift_rate, hit.snr, hit.freq_MHz_ctr, hit.freq_MHz_ctr,
                       hit.index,  hit.freq_MHz1, hit.freq_MHz2);
-  file << fmt::format("0.0\t0.000000\t{}\t1\t\n", hit.coarse_channel);
+  file << fmt::format("0.0\t0.000000\t{}\t1\t{:10.4f}\t{:10.4f}\t{:10.4f}\n", hit.coarse_channel, 
+                        hit.hit_BlkSK, hit.hit_SK, hit.hit_max_min);
   file << flush;
 }

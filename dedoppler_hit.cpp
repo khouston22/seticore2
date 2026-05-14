@@ -8,22 +8,18 @@
 
 using namespace std;
 
-
-// DedopplerHit(const FilterbankMetadata& metadata, int _index, 
-//               double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
-//               int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
-//               int _num_timesteps, float _power);
-
 DedopplerHit::DedopplerHit(const FilterbankMetadata& metadata, int _index, 
               double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
               int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
-              int _num_timesteps, float _power)
+              int _num_timesteps, float _power, float _hit_BlkSK, float _hit_SK, float _hit_max_min)
      :  index(_index), freq_MHz_ctr(_freq_MHz_ctr), 
         freq_MHz1(_freq_MHz1), freq_MHz2(_freq_MHz2), 
         drift_steps(_drift_steps), drift_rate(_drift_rate),
         snr(_snr), coarse_channel(_coarse_channel),
         beam(metadata.isCoherentBeam(_beam) ? _beam : NO_BEAM),
-        num_timesteps(_num_timesteps), power(_power), incoherent_power(0.0) {
+        num_timesteps(_num_timesteps), power(_power), 
+        hit_BlkSK(_hit_BlkSK), hit_SK(_hit_SK), hit_max_min(_hit_max_min),
+        incoherent_power(0.0) {
 }
            
 

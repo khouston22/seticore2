@@ -46,13 +46,22 @@ public:
   // The total power used in the numerator to calculate snr.
   float power;
 
+  // Observed block spectral kurtosis of subband where hit occurs
+  float hit_BlkSK;
+
+  // Observed spectral kurtosis value of hit over peak integration path
+  float hit_SK;
+
+// Observed maximum bin/minimum bin ratio over peak integration path
+  float hit_max_min;
+
   // The total power in the incoherent beam, calculated along the same line.
   float incoherent_power;
   
   DedopplerHit(const FilterbankMetadata& metadata, int _index, 
               double _freq_MHz_ctr, double _freq_MHz1, double _freq_MHz2,
               int _drift_steps, double _drift_rate, float _snr, int _beam, int _coarse_channel,
-              int _num_timesteps, float _power);
+              int _num_timesteps, float _power, float _hit_BlkSK, float _hit_SK, float hit_max_min);
 
   string toString() const;
 

@@ -111,6 +111,101 @@ __global__ void gpu_compute_sigma_scale(float* sigma_scale, float* sigma, float 
   sigma_scale[i_freq] = (Nbox_gain/sigma[i_freq]);
 }
 
+/* 
+  copy submatrix of big matrix into separate matrix
+  assumes both source and destination are stored as 1D arrays
+*/
+
+__global__ void gpu_copy_submatrix(float* dst_matrix, float* src_matrix, int src_n_rows, int src_n_freq, 
+                int start_freq, int n_freq_to_copy, int start_row, int n_rows_to_copy)
+{
+  int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i_freq < start_freq || i_freq >= start_freq + n_freq_to_copy) {
+    return;
+  }
+  for (int i_row = 0; i_row<n_rows_to_copy; i_row++) {
+    dst_matrix[i_row*n_freq_to_copy + i_freq - start_freq] = src_matrix[i_row*src_n_freq + i_freq];
+  }
+}
+
+/* 
+  copy submatrix of big matrix into separate matrix
+  assumes both source and destination are stored as 1D arrays
+  Apply boxcar filtering as the submatrix is copied
+*/
+
+__global__ void gpu_copy_submatrix_boxcar(float* dst_matrix, float* src_matrix, int src_n_rows, int src_n_freq, 
+                int start_freq, int n_freq_to_copy, int start_row, int n_rows_to_copy, int Nbox)
+{
+  int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i_freq < start_freq || i_freq >= start_freq + n_freq_to_copy) {
+    return;
+  }
+
+  float scale = 1./Nbox;
+  for (int i_row = 0; i_row<n_rows_to_copy; i_row++) {
+    float temp_sum = 0;
+    for (int i_box = 0; i_box<Nbox; i_box++) {
+      temp_sum += src_matrix[i_row*src_n_freq + i_freq + i_box - Nbox/2];
+    }
+    dst_matrix[i_row*n_freq_to_copy + i_freq - start_freq] = temp_sum*scale;
+  }
+}
+
+/*
+  Do a De-Doppler sum for a two-dimensional stamp array = submatrix of full normalized coarse-channel spectrogram.
+  stamp input is a (num_timesteps x n_freq) array, stored in row-major order, n_freq << num_freqs = fine FFT size
+  Computes SKs=spectral kurtosis, SNRs = peak signal-to-noise, 
+  P_sums=sum of stamp values over linear drift path
+  Psq_sums=sum of (stamp values) squared over linear drift path
+  A total of n_col sums are computed over start frequencies ranging start_col to start_col+n_col-1
+  Drift slope is determined by col_shift_per_row = (float) drift_bins / (float) drift_timesteps
+ */
+
+void calc_SK_cpu(const float* stamp, int num_timesteps, int n_freq, float mu_noise, float std_noise, 
+                int n_sti, int Nbox, int start_row, int n_row, int start_col, int n_col, float col_shift_per_row, 
+                line_stats lstats[])
+{
+  
+  int i_row,i_col;
+
+  for (i_col=0; i_col<n_col; i_col++) {
+    line_stats* lst = &lstats[i_col];
+    lst->SK = 0.;
+    lst->SNR = 0.;
+    lst->P_sum = 0.;
+    lst->Psq_sum = 0.;
+    lst->P_max = -1e10;
+    lst->P_min = 1e10;
+  
+     // Do the power sums
+    for (i_row=start_row; i_row<start_row+n_row; i_row++) {
+      int i_col_shift = round(i_row*col_shift_per_row);
+      double temp = stamp[i_row*n_freq+start_col+i_col+i_col_shift];
+      lst->P_sum += temp;
+      lst->Psq_sum += temp*temp;
+      lst->P_max = MAX(temp,lst->P_max);
+      lst->P_min = MIN(temp,lst->P_min);
+    }
+
+    // Compute SK and other stats
+
+    // degrees of freedom in individual SG bin
+    double N_dof = 2.*n_sti*Nbox;
+
+    double P_sum_sq = lst->P_sum*lst->P_sum;
+    lst->P_mean = lst->P_sum/n_row;
+    lst->P_std = sqrt((lst->Psq_sum - P_sum_sq/n_row)/(n_row-1));
+    lst->SK = (n_row*N_dof+1.)/(n_row-1) * (n_row*lst->Psq_sum/P_sum_sq - 1.);
+    lst->SNR = (lst->P_mean-mu_noise)/std_noise*sqrt(Nbox);
+    lst->max_min_ratio = lst->P_max /lst->P_min;
+  }
+} 
+
+
+
+
+
 void calc_mean_std_dev(const float* x, int n, float *mean, float *std_dev) 
 {
   double sum_x2 = 0.;
@@ -227,4 +322,26 @@ void print_f_x_segment(float* x, int n_pts, float scale, float f0, float df)
   }
   if (n_pts%10==0) printf("\n"); else printf("\n\n");
 } 
+
+void print_x_submatrix(float* x, int n_row_x, int n_col_x, 
+                int start_row, int n_row, int start_col, int n_col, float col_shift_per_row, float scale) 
+{
+  // view submatrix of x, where x is stored as 1D array
+  // call: print_x_submatrix(x,n_row_x,n_col_x,start_row,n_row,start_col,n_col,col_shift_per_row,scale);
+  // col_shift_per_row: shifts each row so a drifting signal should remain in the same column, can be set to zero also
+  
+  int i_row,i_col;
+  for (i_row=start_row; i_row<start_row+n_row; i_row++) {
+    int i_col_shift = round(i_row*col_shift_per_row);
+    for (i_col=0; i_col<n_col; i_col++) {
+      if (i_col%10==0) printf("\n%6d %6d   ",i_row,start_col+i_col+i_col_shift);
+      printf("%8.0f ",x[i_row*n_col_x+start_col+i_col+i_col_shift]*scale);
+    }
+    if (n_col>10) printf("\n");
+  }
+  printf("\n\n");
+} 
+
+
+
 

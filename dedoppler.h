@@ -96,8 +96,8 @@ private:
   float *gpu_DD_sums_line, *gpu_p2_path_sums, *gpu_boxcar_work, *gpu_Nbox_path_sum;
   float *cpu_boxcar_work;
 
-  // interpolated mean and std values work
-  float *cpu_stamp_sg;
+  // stamp submatrix centered on hit
+  float *gpu_stamp_sg,*cpu_stamp_sg;
   
 
 };
