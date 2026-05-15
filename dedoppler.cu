@@ -634,6 +634,7 @@ void Dedopplerer::search(const FilterbankBuffer& input,
   float BB_fctr_MHz[N_BB_DET_MAX];
   float BB_BW_MHz[N_BB_DET_MAX];
   float BB_SNR[N_BB_DET_MAX];
+  float peak_BlkSK[N_BB_DET_MAX];
   bool in_BB_cluster = false;
 
   for (int i_subband=0; i_subband<n_subband; i_subband++) {
@@ -672,14 +673,18 @@ void Dedopplerer::search(const FilterbankBuffer& input,
     float peak_value = find_max(&cpu_column_sums[i_BB_det1], n_BB_pts);
     int i_subband1 = BB_det_sb1[i_BB_det];
     BB_SNR[i_BB_det] = (peak_value-cpu_subband_mean[i_subband1])/cpu_subband_std[i_subband1];  // rough estimate
+    
+    int i_BB_sb1 = BB_det_sb1[i_BB_det];
+    int n_BB_sb = (BB_det_sb2[i_BB_det]-BB_det_sb1[i_BB_det]+1);
+    peak_BlkSK[i_BB_det] = find_max(&BlkSK[i_BB_sb1],n_BB_sb);
   }
 
   #if 1
     for (int i_BB_det=0; i_BB_det<N_BB_det; i_BB_det++) {
-      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, SNR %5.2f dB\n",
+      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, Peak BlkSK %5.2f, SNR %5.2f dB\n",
             i_BB_det,BB_det_sb1[i_BB_det],BB_det_sb2[i_BB_det],
             BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],BB_fctr_MHz[i_BB_det],BB_BW_MHz[i_BB_det]*1e3,
-            10.*log10(BB_SNR[i_BB_det]));
+            peak_BlkSK[i_BB_det],10.*log10(BB_SNR[i_BB_det]));
     }
   #endif
 
@@ -690,9 +695,8 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       int freq_idx = BB_det_sb1[i_BB_det]*Nf_subband;
       int drift_bins = 0;
       float drift_rate = 0.;
-      float peak_BlkSK = -1.;  // TEMP Need to fix
       DedopplerHit hit(metadata, freq_idx, BB_fctr_MHz[i_BB_det], BB_f1_MHz[i_BB_det],BB_f2_MHz[i_BB_det],
-                  drift_bins, drift_rate, BB_SNR[i_BB_det], 0, coarse_channel, num_timesteps, 0., peak_BlkSK, -1., -1.);
+                  drift_bins, drift_rate, BB_SNR[i_BB_det], 0, coarse_channel, num_timesteps, 0., peak_BlkSK[i_BB_det], -1., -1.);
       output->push_back(hit);
     }
   }
