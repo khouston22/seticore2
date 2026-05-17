@@ -806,13 +806,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       // float Nbox_gain = sqrt(Nbox);
       float Nbox_gain = pow(Nbox,.40);
 
-      // float Nbox_gain = pow(Nbox,.25);
-      // float Nbox_gain = pow(Nbox,.30);
-      // float Nbox_gain = pow(Nbox,.35);
-      // float Nbox_gain = pow(Nbox,.40);
-      // float Nbox_gain = pow(Nbox,.45);
-      // float Nbox_gain = pow(Nbox,.50);
-    
       gpu_compute_sigma_scale<<<grid_size, CUDA_MAX_THREADS>>>(gpu_sigma_scale_vector, 
                                 gpu_std_vector, Nbox_gain, num_channels);
 
@@ -902,19 +895,6 @@ void Dedopplerer::search(const FilterbankBuffer& input,
             max_drift,normalized_max_drift,drift_timesteps,window_size,window_size*fs);
   }
 
-//   struct line_stats {
-//     // statistics for integrated linear track in spectrogram
-//     double SK;
-//     double SNR;
-//     double P_mean;
-//     double P_std;
-//     double P_sum;
-//     double Psq_sums;
-//     double P_max;
-//     double P_min;
-//     double max_min_ratio;
-// };
-
   #define N_STAT_FREQS 20
   line_stats lstats[N_STAT_FREQS];
 
@@ -994,11 +974,10 @@ void Dedopplerer::search(const FilterbankBuffer& input,
       }
 
       if (found_hit) {
-        hit_count++;
-
-        
       
         /*
+          Hit is tentative at this point, with additional screen for spectral kurtosis (SK) possible
+
           Obtain stamp submatix, compute SK and other parameters
         */
 
@@ -1041,51 +1020,64 @@ void Dedopplerer::search(const FilterbankBuffer& input,
         float hit_max_min = lstats[hit_start_mid-start_col].max_min_ratio;
         // float hit_max_min = 1. + (hit_max_min-1)*sqrt(hit_Nbox);
         
-        if (print_hits) {
-          if (hit_count==1) printf("\n");
-          printf("hit %d: chnl %d sb %3d %8d %5d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK %5.2f (%d), Nbox %d, SK %5.3f, maxmin  %5.3f\n",
-                  hit_count, coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,drift_bins,freq_MHz_ctr,
-                  drift_rate,snr_db,candidate_BlkSK,candidate_within_BB_segment,hit_Nbox,hit_SK,hit_max_min);
-        }
+        // screen for SK
 
-        if (0) {
-          stamp_print_count++;
-          if (stamp_print_count<=10) {
-            printf("       stamp %d x %d: ifreq %d dbins %d, src start %d stamp %d - %d, Nbox %d, %d - %d\n\n",
-                    stamp_width,stamp_rows,candidate_freq,drift_bins,stamp_start_column,hit_start_mid,hit_end_mid,
-                    hit_Nbox,hit_start_min,hit_end_max);
-            int start_row = 0;
-            int n_row = 5; 
-            int n_col = 20;
-            int start_col;
-            n_row = MIN(16,num_timesteps);
-            n_col = 10;
-            start_col = hit_start_mid - 2;
-            printf("Shifted stamp submatrix for coarse channel %d, hit %d, Nbox %d, bins/line %.1f, mid col %d (x10):\n",
-                      coarse_channel,hit_count,hit_Nbox, drift_bins_per_line,hit_start_mid);
-            for (int i_row=0; i_row<n_row; i_row++) printf("%.0f ",hit_start_mid + drift_bins_per_line*i_row); 
-            printf("\n");
-            print_x_submatrix(cpu_stamp_sg,num_timesteps,stamp_width,start_row,n_row,start_col,n_col,drift_bins_per_line,10.);
-
-            int i;
-            printf("SK =           "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.3f",lstats[i].SK); printf("\n");
-            printf("SNR dB =       "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.1f",10.*log10(lstats[i].SNR)); printf("\n");
-            printf("P_mean =       "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_mean); printf("\n");
-            printf("P_std =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_std); printf("\n");
-            printf("P_max =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_max); printf("\n");
-            printf("P_min =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_min); printf("\n");
-            printf("Max/Min =      "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].max_min_ratio); printf("\n\n");
+        if (do_hit_screen) {
+          // note if hit_SK>=3 hit will be rejected
+          if (hit_SK>=3) {
+            found_hit = false;
           }
         }
 
-        DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2,
-                drift_bins, drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps, power,
-                candidate_BlkSK,hit_SK,hit_max_min);
+        if (found_hit) {
+          hit_count++;
+        
+          if (print_hits) {
+            if (hit_count==1) printf("\n");
+            printf("hit %d: chnl %d sb %3d %8d %5d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK %5.2f (%d), Nbox %d, SK %5.3f, maxmin  %5.3f\n",
+                    hit_count, coarse_channel,candidate_freq/Nf_subband,candidate_freq-num_channels/2,drift_bins,freq_MHz_ctr,
+                    drift_rate,snr_db,candidate_BlkSK,candidate_within_BB_segment,hit_Nbox,hit_SK,hit_max_min);
+          }
 
-        // if (print_hits) {
-          // cout << "hit: " << hit.toString() << endl;
-        // }
-        output->push_back(hit);
+          if (0) {
+            stamp_print_count++;
+            if (stamp_print_count<=10) {
+              printf("       stamp %d x %d: ifreq %d dbins %d, src start %d stamp %d - %d, Nbox %d, %d - %d\n\n",
+                      stamp_width,stamp_rows,candidate_freq,drift_bins,stamp_start_column,hit_start_mid,hit_end_mid,
+                      hit_Nbox,hit_start_min,hit_end_max);
+              int start_row = 0;
+              int n_row = 5; 
+              int n_col = 20;
+              int start_col;
+              n_row = MIN(16,num_timesteps);
+              n_col = 10;
+              start_col = hit_start_mid - 2;
+              printf("Shifted stamp submatrix for coarse channel %d, hit %d, Nbox %d, bins/line %.1f, mid col %d (x10):\n",
+                        coarse_channel,hit_count,hit_Nbox, drift_bins_per_line,hit_start_mid);
+              for (int i_row=0; i_row<n_row; i_row++) printf("%.0f ",hit_start_mid + drift_bins_per_line*i_row); 
+              printf("\n");
+              print_x_submatrix(cpu_stamp_sg,num_timesteps,stamp_width,start_row,n_row,start_col,n_col,drift_bins_per_line,10.);
+
+              int i;
+              printf("SK =           "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.3f",lstats[i].SK); printf("\n");
+              printf("SNR dB =       "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.1f",10.*log10(lstats[i].SNR)); printf("\n");
+              printf("P_mean =       "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_mean); printf("\n");
+              printf("P_std =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_std); printf("\n");
+              printf("P_max =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_max); printf("\n");
+              printf("P_min =        "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].P_min); printf("\n");
+              printf("Max/Min =      "); for (i=0;i<N_STAT_FREQS;i++) printf("%9.2f",lstats[i].max_min_ratio); printf("\n\n");
+            }
+          }
+
+          DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2,
+                  drift_bins, drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps, power,
+                  candidate_BlkSK,hit_SK,hit_max_min);
+
+          // if (print_hits) {
+            // cout << "hit: " << hit.toString() << endl;
+          // }
+          output->push_back(hit);
+        }
       }
     }
   }
