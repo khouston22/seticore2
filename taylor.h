@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cuda.h>
-
 #include "cuda_util.h"
 
 using namespace std;

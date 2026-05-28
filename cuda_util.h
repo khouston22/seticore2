@@ -1,7 +1,14 @@
 #pragma once
 
-#include <cuda.h>
+#include <cuda_runtime.h>
 #include <iostream>
+
+#ifndef __host__
+#define __host__
+#endif
+#ifndef __device__
+#define __device__
+#endif
 
 using namespace std;
 

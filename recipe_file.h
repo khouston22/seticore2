@@ -65,8 +65,8 @@ class RecipeFile {
   void generateCoefficients(int time_array_index,
 			    int raw_start_channel,
 			    int raw_num_channels,
-			    float raw_center_mhz,
-			    float raw_bandwidth_mhz,
+			    float raw_center_MHz,
+			    float raw_bandwidth_MHz,
 			    int subband_start,
 			    int subband_size,
                             Beamformer* beamformer) const;

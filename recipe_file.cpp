@@ -282,9 +282,9 @@ void RecipeFile::validateRawRange(int schan, int num_coarse_channels) const {
   raw_start_channel is what channel in the recipe file the raw file starts at
     (the SCHAN header)
   raw_num_channels is how many (coarse) channels the raw file has has
-  raw_center_mhz is the center of the entire raw file.
+  raw_center_MHz is the center of the entire raw file.
     (the OBSFREQ header)
-  raw_bandwidth_mhz is the width of the entire raw file, negative for reversed.
+  raw_bandwidth_MHz is the width of the entire raw file, negative for reversed.
     (the OBSBW header)
 
   We only want coefficients for one subband of the raw file, specified by
@@ -297,8 +297,8 @@ void RecipeFile::validateRawRange(int schan, int num_coarse_channels) const {
 void RecipeFile::generateCoefficients(int time_array_index,
 				      int raw_start_channel,
                                       int raw_num_channels,
-                                      float raw_center_mhz,
-				      float raw_bandwidth_mhz,
+                                      float raw_center_MHz,
+				      float raw_bandwidth_MHz,
 				      int subband_start,
 				      int subband_size,
                                       Beamformer* beamformer) const {
@@ -306,7 +306,7 @@ void RecipeFile::generateCoefficients(int time_array_index,
   assert(subband_start + subband_size <= raw_num_channels);
   assert(raw_start_channel + raw_num_channels <= nchans);
   
-  float chan_bandwidth_ghz = raw_bandwidth_mhz / raw_num_channels * 0.001;
+  float chan_bandwidth_ghz = raw_bandwidth_MHz / raw_num_channels * 0.001;
   float raw_center_index = (raw_num_channels - 1.0) / 2.0;
 
   for (int coeff_channel_index = 0; coeff_channel_index < subband_size;
@@ -319,7 +319,7 @@ void RecipeFile::generateCoefficients(int time_array_index,
     assert(recipe_channel_index < nchans);
     
     // Calculate the center of this coarse channel
-    float chan_center_ghz = raw_center_mhz * 0.001 +
+    float chan_center_ghz = raw_center_MHz * 0.001 +
       (raw_channel_index - raw_center_index) * chan_bandwidth_ghz;
 
     for (int beam = 0; beam < nbeams; ++beam) {

@@ -1,159 +1,123 @@
 
-#include "boxcar_sum.h"
-#include <stdio.h> 
+#include "boxcar.h"
+#include <cstdio>
+#include <cstring>
 
 using namespace std;
 
 #define TEST_GPU 1
 
-// Test of the boxcar averaging functions on the CPU and GPU
-// Verifies impulse response for various values of Nbox, and agreement
-// between GPU and CPU versions
-//
-// set #define TEST_GPU 0, compile, run "./boxcar_test > temp_cpu.out"
-// set #define TEST_GPU 1, compile, run "./boxcar_test > temp_gpu.out"
-// "diff temp_gpu.out temp_cpu.out"
-
 int main() {
-
   int n_freq = 1 << 12;
-  int log2_max_p2 = 4;
-  int Nbox_p2_max = 1 << log2_max_p2;
-  int Nbox_max = 2*Nbox_p2_max - 1;
-  int n_zp = 2*Nbox_p2_max;
-  int n_freq_ext = n_freq + 2*n_zp;
-  int n_p2 = log2_max_p2 + 1;
+  BoxcarConfig config;
+  config.log2_max_p2 = 4;
+  int nbox_p2_max = config.nbox_p2_max();
+  int nbox_max = config.nbox_max();
+  int n_zp = config.n_zp();
+  int n_freq_ext = n_freq + 2 * n_zp;
+  int n_p2 = config.n_p2();
 
-  float *DD_sums_line;
-  float *p2_path_sums;
-  float *work;
-  float *Nbox_path_sum;
- 
-  #if TEST_GPU
-    printf("Boxcar GPU Test\n");
-    float *gpu_DD_sums_line, *gpu_p2_path_sums, *gpu_work, *gpu_Nbox_path_sum;
-    cudaMalloc(&gpu_DD_sums_line, n_freq*sizeof(float));
-    cudaMallocHost(&DD_sums_line, n_freq*sizeof(float));
-    checkCuda("DD_sums_line malloc");
-    cudaMalloc(&gpu_p2_path_sums, n_freq_ext*n_p2*sizeof(float));
-    cudaMallocHost(&p2_path_sums, n_freq_ext*n_p2*sizeof(float));
-    checkCuda("p2_path_sums malloc");
-    cudaMalloc(&gpu_work, 2*n_freq_ext*sizeof(float));
-    cudaMallocHost(&work, 2*n_freq_ext*sizeof(float));
-    checkCuda("work malloc");
-    cudaMalloc(&gpu_Nbox_path_sum, n_freq*sizeof(float));
-    cudaMallocHost(&Nbox_path_sum, n_freq*sizeof(float));
-    checkCuda("Nbox_path_sum malloc");
-  #else
-    printf("Boxcar CPU Test\n");
-    DD_sums_line = (float *) malloc(n_freq*sizeof(float));
-    p2_path_sums = (float *) malloc(n_freq_ext*n_p2*sizeof(float));
-    work = (float *) malloc(2*n_freq_ext*sizeof(float));
-    Nbox_path_sum = (float *) malloc(n_freq*sizeof(float));
-  #endif
+  float* dd_sums_line;
+  float* p2_path_sums;
+  float* work;
+  float* nbox_path_sum;
 
-  printf("n_freq=%d, log2_max_p2=%d, Nbox_p2_max=%d, Nbox_max=%d, n_zp=%d\n",
-        n_freq,log2_max_p2,Nbox_p2_max,Nbox_max,n_zp);
+#if TEST_GPU
+  printf("Boxcar GPU Test\n");
+  float *gpu_dd_sums_line;
+  cudaMalloc(&gpu_dd_sums_line, n_freq * sizeof(float));
+  cudaMallocHost(&dd_sums_line, n_freq * sizeof(float));
+  checkCuda("DD_sums_line malloc");
+  BoxcarWorkspace boxcar(n_freq, config);
+#else
+  printf("Boxcar CPU Test\n");
+  dd_sums_line = static_cast<float*>(malloc(n_freq * sizeof(float)));
+  p2_path_sums = static_cast<float*>(malloc(n_freq_ext * n_p2 * sizeof(float)));
+  work = static_cast<float*>(malloc(2 * n_freq_ext * sizeof(float)));
+  nbox_path_sum = static_cast<float*>(malloc(n_freq * sizeof(float)));
+  BoxcarWorkspace boxcar(n_freq, config);
+#endif
 
-  // set up input line in cpu
-  memset(DD_sums_line, 0, n_freq*sizeof(float)); 
-  
-  int i_freq;
-  int sig_start = n_freq/2;
-  // int sig_start = 0;
-  // int sig_start = n_freq - sig_width;
-  float sig_value = 1.0;
+  printf("n_freq=%d, log2_max_p2=%d, Nbox_p2_max=%d, Nbox_max=%d, n_zp=%d\n", n_freq,
+         config.log2_max_p2, nbox_p2_max, nbox_max, n_zp);
 
-  #if 1
-    // impulse response test
-    int sig_width = 1;
-    for (i_freq=sig_start; i_freq<sig_start+sig_width; i_freq++) {
-      DD_sums_line[i_freq] = sig_value;
-    }
-  #else
-    // ramp response test
-    int sig_width = 5;
-    for (i_freq=sig_start; i_freq<sig_start+sig_width; i_freq++) {
-      DD_sums_line[i_freq] = sig_value + i_freq - sig_start;
-    }
-  #endif
+  memset(dd_sums_line, 0, n_freq * sizeof(float));
 
-  #if TEST_GPU
-    // copy DD_sums_line to GPU
-    cudaMemcpy(gpu_DD_sums_line,DD_sums_line,
-               n_freq*sizeof(float), cudaMemcpyHostToDevice);
-    checkCuda("cudaMemcpy-DD_sums_line");
-  #endif
+  int sig_start = n_freq / 2;
+  float sig_value = 1.0f;
 
-  
-  // Generate power of 2 sum vectors
+#if 1
+  int sig_width = 1;
+  for (int i_freq = sig_start; i_freq < sig_start + sig_width; i_freq++) {
+    dd_sums_line[i_freq] = sig_value;
+  }
+#else
+  int sig_width = 5;
+  for (int i_freq = sig_start; i_freq < sig_start + sig_width; i_freq++) {
+    dd_sums_line[i_freq] = sig_value + i_freq - sig_start;
+  }
+#endif
 
-  #if TEST_GPU
-    #if 1
-      gen_boxcar_p2_sums_gpu(gpu_p2_path_sums,gpu_DD_sums_line,n_freq,log2_max_p2,n_zp);
-      cudaMemcpy(p2_path_sums,gpu_p2_path_sums,
-                 n_freq_ext*n_p2*sizeof(float), cudaMemcpyDeviceToHost);
-      checkCuda("cudaMemcpy-gen_boxcar_p2_sums_gpu");
-      cudaDeviceSynchronize();
-    #else
-      // still compute in cpu
-      gen_boxcar_p2_sums_cpu(p2_path_sums,DD_sums_line,n_freq,log2_max_p2,n_zp);
-    #endif
-  #else
-    gen_boxcar_p2_sums_cpu(p2_path_sums,DD_sums_line,n_freq,log2_max_p2,n_zp);
-  #endif
+#if TEST_GPU
+  cudaMallocHost(&p2_path_sums, n_freq_ext * n_p2 * sizeof(float));
+  cudaMallocHost(&work, 2 * n_freq_ext * sizeof(float));
+  cudaMallocHost(&nbox_path_sum, n_freq * sizeof(float));
+  checkCuda("host buffers malloc");
 
-  // Print out power of 2 boxcar sum vectors
+  cudaMemcpy(gpu_dd_sums_line, dd_sums_line, n_freq * sizeof(float), cudaMemcpyHostToDevice);
+  checkCuda("cudaMemcpy-DD_sums_line");
+
+  boxcar.computeP2SumsGpu(gpu_dd_sums_line, config.log2_max_p2, n_zp);
+  cudaMemcpy(p2_path_sums, boxcar.gpuP2PathSums(), n_freq_ext * n_p2 * sizeof(float),
+             cudaMemcpyDeviceToHost);
+  checkCuda("cudaMemcpy-gen_boxcar_p2_sums_gpu");
+  cudaDeviceSynchronize();
+#else
+  boxcar.computeP2SumsCpu(dd_sums_line, config.log2_max_p2, p2_path_sums, n_zp);
+#endif
+
   int print_ofs = -20;
   int print_n_pts = 60;
 
-  for (int i_Nbox=0; i_Nbox<=log2_max_p2; i_Nbox++) {
-    int start_idx = n_freq_ext*i_Nbox + sig_start + n_zp;
-    int Nbox_p2 = 1 << i_Nbox;
-    printf("\nNbox_p2=%d, sig_start=%d %d\n",Nbox_p2,sig_start,n_freq-sig_start);
-    int n_pts = MIN(print_n_pts,n_freq_ext - (sig_start - print_ofs));
-    print_Nbox_segment(&p2_path_sums[start_idx],n_pts,print_ofs,1.);
+  for (int i_nbox = 0; i_nbox <= config.log2_max_p2; i_nbox++) {
+    int start_idx = n_freq_ext * i_nbox + sig_start + n_zp;
+    int nbox_p2 = 1 << i_nbox;
+    printf("\nNbox_p2=%d, sig_start=%d %d\n", nbox_p2, sig_start, n_freq - sig_start);
+    int n_pts = min(print_n_pts, n_freq_ext - (sig_start - print_ofs));
+    BoxcarWorkspace::printNboxSegment(&p2_path_sums[start_idx], n_pts, print_ofs, 1.f);
   }
 
-  // Generate boxcar sums for arbitrary Nbox values
+  for (int nbox = 1; nbox <= nbox_max; nbox++) {
+#if TEST_GPU
+    boxcar.computeP2SumsGpu(gpu_dd_sums_line, config.log2_max_p2, n_zp);
+    boxcar.computeSumGpu(nbox, config.log2_max_p2, n_zp);
+    cudaMemcpy(nbox_path_sum, boxcar.gpuNboxPathSum(), n_freq * sizeof(float),
+               cudaMemcpyDeviceToHost);
+    checkCuda("cudaMemcpy-gen_boxcar_sum_gpu");
+    cudaDeviceSynchronize();
+#else
+    boxcar.computeSumCpu(p2_path_sums, work, nbox, config.log2_max_p2, n_zp, nbox_path_sum);
+#endif
 
-  for (int Nbox=1; Nbox<=Nbox_max; Nbox++) {
-    #if TEST_GPU
-      gen_boxcar_sum_gpu(gpu_Nbox_path_sum,gpu_p2_path_sums,gpu_work,Nbox,n_freq,log2_max_p2,n_zp);
-      cudaMemcpy(Nbox_path_sum,gpu_Nbox_path_sum,
-                 n_freq*sizeof(float), cudaMemcpyDeviceToHost);
-      checkCuda("cudaMemcpy-gen_boxcar_sum_gpu");
-      cudaDeviceSynchronize();
-    #else
-      gen_boxcar_sum_cpu(Nbox_path_sum,p2_path_sums,work,Nbox,n_freq,log2_max_p2,n_zp);
-    #endif
-
-    // Print out boxcar sum vector
-
-    int start_idx;
-  
-    start_idx = sig_start;
-    printf("\nNbox=%d, sig_start=%d %d\n",Nbox,sig_start,n_freq-sig_start);
-  
-    int n_pts = MIN(print_n_pts,n_freq - start_idx);
-    print_Nbox_segment(&Nbox_path_sum[start_idx],n_pts,print_ofs,Nbox);
+    int start_idx = sig_start;
+    printf("\nNbox=%d, sig_start=%d %d\n", nbox, sig_start, n_freq - sig_start);
+    int n_pts = min(print_n_pts, n_freq - start_idx);
+    BoxcarWorkspace::printNboxSegment(&nbox_path_sum[start_idx], n_pts, print_ofs,
+                                      static_cast<float>(nbox));
   }
 
-  #if TEST_GPU
-    cudaFree(gpu_DD_sums_line);
-    cudaFreeHost(DD_sums_line);
-    cudaFree(gpu_p2_path_sums);
-    cudaFreeHost(p2_path_sums);
-    cudaFree(gpu_work);
-    cudaFreeHost(work);
-    cudaFree(gpu_Nbox_path_sum);
-    cudaFreeHost(Nbox_path_sum);
-  #else
-    free(DD_sums_line);
-    free(p2_path_sums);
-    free(work);
-    free(Nbox_path_sum);
-  #endif
+#if TEST_GPU
+  cudaFree(gpu_dd_sums_line);
+  cudaFreeHost(dd_sums_line);
+  cudaFreeHost(p2_path_sums);
+  cudaFreeHost(work);
+  cudaFreeHost(nbox_path_sum);
+#else
+  free(dd_sums_line);
+  free(p2_path_sums);
+  free(work);
+  free(nbox_path_sum);
+#endif
 
   return 0;
 }

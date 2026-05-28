@@ -98,6 +98,8 @@ int dedopplerMode(const po::variables_map& vm) {
   
   int i_BB_hits_to_dat = vm.count("BB_to_dat") ? vm["BB_to_dat"].as<int>() : 0;
   bool write_BB_hits_to_dat =  i_BB_hits_to_dat ? true : false;
+
+  int debug = vm["debug"].as<int>();
   
   cout << "loading input from " << input << endl;
   cout << fmt::format("dedoppler parameters: max_drift={:.2f} min_drift={:.4f} "
@@ -105,7 +107,8 @@ int dedopplerMode(const po::variables_map& vm) {
                       max_drift, min_drift, snr);
   cout << "writing output to " << output << endl;
   int tstart = time(NULL);
-  runDedoppler(input, output, max_drift, min_drift, snr, do_hit_screen, write_BB_hits_to_dat);
+  runDedoppler(input, output, max_drift, min_drift, snr, do_hit_screen, write_BB_hits_to_dat,
+               debug);
   int tstop = time(NULL);
   cerr << fmt::format("dedoppler elapsed time: {:d}s\n", tstop - tstart);
   return 0;
@@ -182,6 +185,9 @@ int main(int argc, char* argv[]) {
 
       ("BB_to_dat", po::value<int>()->default_value(0),
        "=1 write broadband detections to dat file")
+
+      ("debug,d", po::value<int>()->default_value(0),
+       "debug output level (>=1 enables verbose dedoppler dumps)")
 
       ("recipe_dir", po::value<string>(),
        "the directory to find beamforming recipes in. set this to beamform.")

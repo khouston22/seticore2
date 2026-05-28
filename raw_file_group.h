@@ -76,8 +76,8 @@ class RawFileGroup {
   int num_coarse_channels;
   int npol;
   int schan;
-  double obsbw;    // Mhz
-  double obsfreq;  // Mhz
+  double obsbw;    // MHz
+  double obsfreq;  // MHz
   double ra;       // hours
   double dec;      // degrees
   
@@ -129,7 +129,7 @@ class RawFileGroup {
   // Does not count headers, only data
   float totalDataGB() const;
 
-  // The bandwidth of a coarse channel, in Mhz
+  // The bandwidth of a coarse channel, in MHz
   float coarseChannelBandwidth() const;
 
   // Calculate fch1 for the entire file

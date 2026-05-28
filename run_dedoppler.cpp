@@ -29,13 +29,14 @@ using namespace std;
  */
 void runDedoppler(const string& input_filename, const string& output_filename,
                   double max_drift, double min_drift, double snr_threshold,
-                  bool do_hit_screen, bool write_BB_hits_to_dat) {
+                  bool do_hit_screen, bool write_BB_hits_to_dat, int debug) {
   auto file = loadFilterbankFile(input_filename);
   auto recorder = makeHitRecorder(output_filename, *file.get(), max_drift);
 
   Dedopplerer dedopplerer(file->num_timesteps, file->coarse_channel_size, file->foff,
                           file->tsamp, file->has_dc_spike);
   dedopplerer.print_hits = true;
+  dedopplerer.debug = debug;
   #if MANAGED_INPUT
   FilterbankBuffer buffer(roundUpToPowerOfTwo(file->num_timesteps),
                           file->coarse_channel_size);

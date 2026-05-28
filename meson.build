@@ -48,12 +48,16 @@ deps = [fmt_dep, boost_dep, hdf5_dep, cuda_dep, kj_dep, capnp_dep]
 srcs = [
     'beamformer.cu',
     'beamforming_pipeline.cpp',
-    'boxcar_sum_fns.cu',
+    'boxcar.cpp',
+    'boxcar.cu',
     'complex_buffer.cu',
     'cuda_util.cu',
-    'dedoppler.cu',
+    'dedoppler.cpp',
+    'dedoppler_kernels.cu',
     'dedoppler_hit.cpp',
     'dedoppler_hit_group.cpp',
+    'detection.cpp',
+    'detection.cu',
     'device_raw_buffer.cu',
     'dat_file_writer.cpp',
     'event_file_writer.cpp',
@@ -80,7 +84,6 @@ srcs = [
     'thread_util.cpp',
     'upchannelizer.cu',
     'util.cpp',
-    'detection_fns.cu',
 ]
 
 tests = [

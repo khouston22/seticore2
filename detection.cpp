@@ -1,0 +1,314 @@
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+#include "detection.h"
+
+void StatsUtil::meanStdDev(const float* x, int n, float* mean, float* std_dev) {
+  double sum_x2 = 0.;
+  double sum_x = 0.;
+
+  for (int i = 0; i < n; i++) {
+    float temp = x[i];
+    sum_x += temp;
+    sum_x2 += temp * temp;
+  }
+  *mean = static_cast<float>(sum_x / n);
+  *std_dev = sqrt((sum_x2 - n * (*mean) * (*mean)) / (n - 1));
+}
+
+void StatsUtil::meanStdDev2(const float* x, int n, float* mean, float* std_dev) {
+  float sum_x2 = 0.f;
+  float sum_x = 0.f;
+
+  for (int i = 0; i < n; i++) {
+    float temp = x[i];
+    sum_x += temp;
+    sum_x2 += temp * temp;
+  }
+  *mean = sum_x / n;
+  *std_dev = sqrt((sum_x2 - n * (*mean) * (*mean)) / (n - 1));
+}
+
+float StatsUtil::max(const float* x, int n) {
+  float x_max = x[0];
+  for (int i = 1; i < n; i++) {
+    x_max = std::max(x_max, x[i]);
+  }
+  return x_max;
+}
+
+float StatsUtil::min(const float* x, int n) {
+  float x_min = x[0];
+  for (int i = 1; i < n; i++) {
+    x_min = std::min(x_min, x[i]);
+  }
+  return x_min;
+}
+
+void StatsUtil::replaceDcSpike(float* x, int dc_ofs, int mean_pts) {
+  float adj_mean = 0.f;
+  for (int i_ofs = -dc_ofs - mean_pts; i_ofs < -dc_ofs; i_ofs++) {
+    adj_mean += x[i_ofs];
+  }
+  for (int i_ofs = dc_ofs + 1; i_ofs <= dc_ofs + mean_pts; i_ofs++) {
+    adj_mean += x[i_ofs];
+  }
+  adj_mean /= (2 * mean_pts);
+
+  for (int i_ofs = -dc_ofs; i_ofs <= dc_ofs; i_ofs++) {
+    x[i_ofs] = adj_mean;
+  }
+}
+
+void StatsUtil::printXLr(float* x, int max_ofs, float scale) {
+  for (int i_ofs = -max_ofs; i_ofs < max_ofs; i_ofs++) {
+    if (i_ofs % 10 == 0) {
+      printf("\n%6d   ", i_ofs);
+    }
+    printf("%8.0f ", x[i_ofs] * scale);
+  }
+  if (max_ofs % 10 == 0) {
+    printf("\n");
+  } else {
+    printf("\n\n");
+  }
+}
+
+void StatsUtil::printXSegment(float* x, int n_pts, float scale) {
+  for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
+    if (i_ofs % 10 == 0) {
+      printf("\n%6d   ", i_ofs);
+    }
+    printf("%8.0f ", x[i_ofs] * scale);
+  }
+  if (n_pts % 10 == 0) {
+    printf("\n");
+  } else {
+    printf("\n\n");
+  }
+}
+
+void StatsUtil::printXSegmentStride(float* x, int n_pts, int stride, float scale) {
+  for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
+    if (i_ofs % 10 == 0) {
+      printf("\n%6d   ", i_ofs * stride);
+    }
+    printf("%8.0f ", x[i_ofs * stride] * scale);
+  }
+  if (n_pts % 10 == 0) {
+    printf("\n");
+  } else {
+    printf("\n\n");
+  }
+}
+
+void StatsUtil::printFXSegment(float* x, int n_pts, float scale, float f0, float df) {
+  for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
+    if (i_ofs % 10 == 0) {
+      printf("\n%6d %8.2f  ", i_ofs, f0 + i_ofs * df);
+    }
+    printf("%8.0f ", x[i_ofs] * scale);
+  }
+  if (n_pts % 10 == 0) {
+    printf("\n");
+  } else {
+    printf("\n\n");
+  }
+}
+
+void StatsUtil::printXSubmatrix(float* x, int n_row_x, int n_col_x, int start_row, int n_row,
+                                int start_col, int n_col, float col_shift_per_row, float scale) {
+  for (int i_row = start_row; i_row < start_row + n_row; i_row++) {
+    int i_col_shift = static_cast<int>(round(i_row * col_shift_per_row));
+    for (int i_col = 0; i_col < n_col; i_col++) {
+      if (i_col % 10 == 0) {
+        printf("\n%6d %6d   ", i_row, start_col + i_col + i_col_shift);
+      }
+      printf("%8.0f ", x[i_row * n_col_x + start_col + i_col + i_col_shift] * scale);
+    }
+    if (n_col > 10) {
+      printf("\n");
+    }
+  }
+  printf("\n\n");
+}
+
+int SubbandNormalizer::chooseSubbandCount(int num_channels) {
+  int n_subband = kNominalSubbands;
+  int nf_subband = num_channels / n_subband;
+  while ((nf_subband < kMinFreqPerSubband) || (n_subband == kMinSubbands)) {
+    n_subband = std::max(kMinSubbands, n_subband / 2);
+    nf_subband = num_channels / n_subband;
+  }
+  return n_subband;
+}
+
+void SubbandNormalizer::calcSubbandMeanStd(const float* spectrum, int num_channels, int n_subband,
+                                           bool do_limit, float* subband_limit, float* work,
+                                           float* subband_mean, float* subband_std) const {
+  int nf_subband = num_channels / n_subband;
+
+  for (int i_band = 0; i_band < n_subband; i_band++) {
+    int i_ofs = i_band * nf_subband;
+    if (do_limit) {
+      float limit_value = subband_limit[i_band];
+      for (int i = 0; i < nf_subband; i++) {
+        work[i] = std::min(spectrum[i_ofs + i], limit_value);
+      }
+      StatsUtil::meanStdDev(work, nf_subband, &subband_mean[i_band], &subband_std[i_band]);
+    } else {
+      StatsUtil::meanStdDev(&spectrum[i_ofs], nf_subband, &subband_mean[i_band],
+                            &subband_std[i_band]);
+    }
+  }
+}
+
+void SubbandNormalizer::multipassMeanStd(const float* spectrum, int num_channels, int n_subband,
+                                         float shear_constant, float* work, float* subband_mean,
+                                         float* subband_std, float* subband_limit) const {
+  bool do_limit = false;
+  calcSubbandMeanStd(spectrum, num_channels, n_subband, do_limit, subband_limit, work,
+                     subband_mean, subband_std);
+
+  for (int i_band = 0; i_band < n_subband; i_band++) {
+    subband_limit[i_band] = subband_mean[i_band] + shear_constant * subband_std[i_band];
+  }
+
+  do_limit = true;
+  calcSubbandMeanStd(spectrum, num_channels, n_subband, do_limit, subband_limit, work,
+                     subband_mean, subband_std);
+
+  for (int i_band = 0; i_band < n_subband; i_band++) {
+    subband_limit[i_band] = subband_mean[i_band] + shear_constant * subband_std[i_band];
+  }
+
+  calcSubbandMeanStd(spectrum, num_channels, n_subband, do_limit, subband_limit, work,
+                     subband_mean, subband_std);
+}
+
+SubbandNormalizer::SubbandNormalizer(int num_freq)
+    : num_freq_(num_freq) {
+  cudaMalloc(&gpu_subband_mean_, kNominalSubbands * sizeof(float));
+  cudaMallocHost(&cpu_subband_mean_, kNominalSubbands * sizeof(float));
+  checkCuda("subband_mean malloc");
+  cudaMalloc(&gpu_subband_std_, kNominalSubbands * sizeof(float));
+  cudaMallocHost(&cpu_subband_std_, kNominalSubbands * sizeof(float));
+  checkCuda("subband_std malloc");
+  cudaMalloc(&gpu_mu_std_work_, 3 * num_freq_ * sizeof(float));
+  cudaMallocHost(&cpu_mu_std_work_, 3 * num_freq_ * sizeof(float));
+  checkCuda("mu std work malloc");
+}
+
+SubbandNormalizer::~SubbandNormalizer() {
+  cudaFree(gpu_subband_mean_);
+  cudaFreeHost(cpu_subband_mean_);
+  cudaFree(gpu_subband_std_);
+  cudaFreeHost(cpu_subband_std_);
+  cudaFree(gpu_mu_std_work_);
+  cudaFreeHost(cpu_mu_std_work_);
+}
+
+void StampAnalyzer::computeSk(const float* stamp, int num_timesteps, int n_freq, float mu_noise,
+                              float std_noise, int n_sti, int nbox, int start_row, int n_row,
+                              int start_col, int n_col, float col_shift_per_row,
+                              LineStats* lstats) {
+  for (int i_col = 0; i_col < n_col; i_col++) {
+    LineStats* lst = &lstats[i_col];
+    lst->sk = 0.;
+    lst->snr = 0.;
+    lst->p_sum = 0.;
+    lst->psq_sum = 0.;
+    lst->p_max = -1e10;
+    lst->p_min = 1e10;
+
+    for (int i_row = start_row; i_row < start_row + n_row; i_row++) {
+      int i_col_shift = static_cast<int>(round(i_row * col_shift_per_row));
+      double temp = stamp[i_row * n_freq + start_col + i_col + i_col_shift];
+      lst->p_sum += temp;
+      lst->psq_sum += temp * temp;
+      lst->p_max = std::max(temp, lst->p_max);
+      lst->p_min = std::min(temp, lst->p_min);
+    }
+
+    double n_dof = 2. * n_sti * nbox;
+    double p_sum_sq = lst->p_sum * lst->p_sum;
+    lst->p_mean = lst->p_sum / n_row;
+    lst->p_std = sqrt((lst->psq_sum - p_sum_sq / n_row) / (n_row - 1));
+    lst->sk = (n_row * n_dof + 1.) / (n_row - 1) * (n_row * lst->psq_sum / p_sum_sq - 1.);
+    lst->snr = (lst->p_mean - mu_noise) / std_noise * sqrt(nbox);
+    lst->max_min_ratio = lst->p_max / lst->p_min;
+  }
+}
+
+void StampAnalyzer::printHitStampDebug(int coarse_channel, int hit_count, int candidate_freq,
+                                       int drift_bins, int stamp_start_column, int hit_start_mid,
+                                       int hit_end_mid, int hit_nbox, int hit_start_min,
+                                       int hit_end_max, int stamp_width, int stamp_rows,
+                                       float drift_bins_per_line, int n_stat_freqs,
+                                       const LineStats* lstats) const {
+  printf("       stamp %d x %d: ifreq %d dbins %d, src start %d stamp %d - %d, Nbox %d, "
+         "%d - %d\n\n",
+         stamp_width, stamp_rows, candidate_freq, drift_bins, stamp_start_column, hit_start_mid,
+         hit_end_mid, hit_nbox, hit_start_min, hit_end_max);
+  int n_row = min(16, num_timesteps_);
+  int n_col = 10;
+  int start_col = hit_start_mid - 2;
+  printf("Shifted stamp submatrix for coarse channel %d, hit %d, Nbox %d, bins/line "
+         "%.1f, mid col %d (x10):\n",
+         coarse_channel, hit_count, hit_nbox, drift_bins_per_line, hit_start_mid);
+  for (int i_row = 0; i_row < n_row; i_row++) {
+    printf("%.0f ", hit_start_mid + drift_bins_per_line * i_row);
+  }
+  printf("\n");
+  StatsUtil::printXSubmatrix(cpu_stamp_, num_timesteps_, stamp_width, 0, n_row, start_col, n_col,
+                             drift_bins_per_line, 10.f);
+  printf("SK =           ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.3f", lstats[i].sk);
+  }
+  printf("\n");
+  printf("SNR dB =       ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.1f", 10.f * log10(lstats[i].snr));
+  }
+  printf("\n");
+  printf("P_mean =       ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.2f", lstats[i].p_mean);
+  }
+  printf("\n");
+  printf("P_std =        ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.2f", lstats[i].p_std);
+  }
+  printf("\n");
+  printf("P_max =        ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.2f", lstats[i].p_max);
+  }
+  printf("\n");
+  printf("P_min =        ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.2f", lstats[i].p_min);
+  }
+  printf("\n");
+  printf("Max/Min =      ");
+  for (int i = 0; i < n_stat_freqs; i++) {
+    printf("%9.2f", lstats[i].max_min_ratio);
+  }
+  printf("\n\n");
+}
+
+StampAnalyzer::StampAnalyzer(int stamp_n_freq_max, int num_timesteps)
+    : stamp_n_freq_max_(stamp_n_freq_max), num_timesteps_(num_timesteps) {
+  cudaMalloc(&gpu_stamp_, stamp_n_freq_max_ * num_timesteps_ * sizeof(float));
+  checkCuda("gpu_stamp_sg malloc");
+  cudaMallocHost(&cpu_stamp_, stamp_n_freq_max_ * num_timesteps_ * sizeof(float));
+  checkCuda("cpu_stamp_sg malloc");
+}
+
+StampAnalyzer::~StampAnalyzer() {
+  cudaFree(gpu_stamp_);
+  cudaFreeHost(cpu_stamp_);
+}
