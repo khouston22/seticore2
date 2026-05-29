@@ -288,16 +288,16 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   }
 
   float subband_std_mean_nominal = 1.0f / sqrt(2 * n_avg);
-  float subband_std_mean_ratio[SubbandNormalizer::kNominalSubbands];
+  float subband_std_mean_norm[SubbandNormalizer::kNominalSubbands];
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
-    subband_std_mean_ratio[i_subband] =
+    subband_std_mean_norm[i_subband] =
         cpu_subband_std[i_subband] / cpu_subband_mean[i_subband] / subband_std_mean_nominal;
   }
 
   if (debug >= 1) {
     printf("chnl %d n_subband=%d sigma clipped std/mean values over expected after scale (x100):\n",
           coarse_channel, n_subband);
-    StatsUtil::printFXSegment(subband_std_mean_ratio, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
+    StatsUtil::printFXSegment(subband_std_mean_norm, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
 
     printf("chnl %d n_subband=%d clipped SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
           coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
@@ -373,14 +373,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   const int n_bb_det_max = SubbandNormalizer::kNominalSubbands / 2;
   int bb_det_idx = -1;
-  int bb_det_sb1[n_bb_det_max];
-  int bb_det_sb2[n_bb_det_max];
-  float bb_f1_MHz[n_bb_det_max];
-  float bb_f2_MHz[n_bb_det_max];
-  float bb_fctr_MHz[n_bb_det_max];
-  float bb_bw_MHz[n_bb_det_max];
-  float bb_snr[n_bb_det_max];
-  float peak_blk_sk[n_bb_det_max];
+  BBdet bb_det[n_bb_det_max];
   bool in_bb_cluster = false;
 
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
@@ -388,22 +381,22 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       if (!in_bb_cluster) {
         in_bb_cluster = true;
         bb_det_idx++;
-        bb_det_sb1[bb_det_idx] = i_subband;
+        bb_det[bb_det_idx].sb1 = i_subband;
         if (df_sb_MHz >= 0.) {
-          bb_f1_MHz[bb_det_idx] = f0_sb_MHz + (i_subband - 0.5) * df_sb_MHz;
+          bb_det[bb_det_idx].f1_MHz = f0_sb_MHz + (i_subband - 0.5) * df_sb_MHz;
         } else {
-          bb_f2_MHz[bb_det_idx] = f0_sb_MHz + (i_subband - 0.5) * df_sb_MHz;
+          bb_det[bb_det_idx].f2_MHz = f0_sb_MHz + (i_subband - 0.5) * df_sb_MHz;
         }
       }
-      bb_det_sb2[bb_det_idx] = i_subband;
+      bb_det[bb_det_idx].sb2 = i_subband;
       if (df_sb_MHz >= 0.) {
-        bb_f2_MHz[bb_det_idx] = f0_sb_MHz + (i_subband + 0.5) * df_sb_MHz;
+        bb_det[bb_det_idx].f2_MHz = f0_sb_MHz + (i_subband + 0.5) * df_sb_MHz;
       } else {
-        bb_f1_MHz[bb_det_idx] = f0_sb_MHz + (i_subband + 0.5) * df_sb_MHz;
+        bb_det[bb_det_idx].f1_MHz = f0_sb_MHz + (i_subband + 0.5) * df_sb_MHz;
       }
-      int i_subband_ctr = (bb_det_sb1[bb_det_idx] + bb_det_sb2[bb_det_idx]) / 2;
-      bb_fctr_MHz[bb_det_idx] = f0_sb_MHz + i_subband_ctr * df_sb_MHz;
-      bb_bw_MHz[bb_det_idx] = bb_f2_MHz[bb_det_idx] - bb_f1_MHz[bb_det_idx];
+      int i_subband_ctr = (bb_det[bb_det_idx].sb1 + bb_det[bb_det_idx].sb2) / 2;
+      bb_det[bb_det_idx].fctr_MHz = f0_sb_MHz + i_subband_ctr * df_sb_MHz;
+      bb_det[bb_det_idx].bw_MHz = bb_det[bb_det_idx].f2_MHz - bb_det[bb_det_idx].f1_MHz;
     } else {
       in_bb_cluster = false;
     }
@@ -411,32 +404,32 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int n_bb_det = bb_det_idx + 1;
 
   for (int i_bb_det = 0; i_bb_det < n_bb_det; i_bb_det++) {
-    int i_bb_det1 = bb_det_sb1[i_bb_det] * nf_subband;
-    int n_bb_pts = (bb_det_sb2[i_bb_det] - bb_det_sb1[i_bb_det] + 1) * nf_subband;
+    int i_bb_det1 = bb_det[i_bb_det].sb1 * nf_subband;
+    int n_bb_pts = (bb_det[i_bb_det].sb2 - bb_det[i_bb_det].sb1 + 1) * nf_subband;
     float peak_value = StatsUtil::max(&cpu_column_sums[i_bb_det1], n_bb_pts);
-    int i_subband1 = bb_det_sb1[i_bb_det];
-    bb_snr[i_bb_det] =
+    int i_subband1 = bb_det[i_bb_det].sb1;
+    bb_det[i_bb_det].snr =
         (peak_value - cpu_subband_mean[i_subband1]) / cpu_subband_std[i_subband1];
 
-    int i_bb_sb1 = bb_det_sb1[i_bb_det];
-    int n_bb_sb = bb_det_sb2[i_bb_det] - bb_det_sb1[i_bb_det] + 1;
-    peak_blk_sk[i_bb_det] = StatsUtil::max(&blk_sk[i_bb_sb1], n_bb_sb);
+    int i_bb_sb1 = bb_det[i_bb_det].sb1;
+    int n_bb_sb = bb_det[i_bb_det].sb2 - bb_det[i_bb_det].sb1 + 1;
+    bb_det[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk[i_bb_sb1], n_bb_sb);
   }
 
   for (int i_bb_det = 0; i_bb_det < n_bb_det; i_bb_det++) {
     printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, "
            "Peak BlkSK %5.2f, SNR %5.2f dB\n",
-           i_bb_det, bb_det_sb1[i_bb_det], bb_det_sb2[i_bb_det], bb_f1_MHz[i_bb_det],
-           bb_f2_MHz[i_bb_det], bb_fctr_MHz[i_bb_det], bb_bw_MHz[i_bb_det] * 1e3,
-           peak_blk_sk[i_bb_det], 10. * log10(bb_snr[i_bb_det]));
+           i_bb_det, bb_det[i_bb_det].sb1, bb_det[i_bb_det].sb2, bb_det[i_bb_det].f1_MHz,
+           bb_det[i_bb_det].f2_MHz, bb_det[i_bb_det].fctr_MHz, bb_det[i_bb_det].bw_MHz * 1e3,
+           bb_det[i_bb_det].peak_blk_sk, 10. * log10(bb_det[i_bb_det].snr));
   }
 
   if (write_BB_hits_to_dat) {
     for (int i_bb_det = 0; i_bb_det < n_bb_det; i_bb_det++) {
-      int freq_idx = bb_det_sb1[i_bb_det] * nf_subband;
-      DedopplerHit hit(metadata, freq_idx, bb_fctr_MHz[i_bb_det], bb_f1_MHz[i_bb_det],
-                       bb_f2_MHz[i_bb_det], 0, 0., bb_snr[i_bb_det], 0, coarse_channel,
-                       num_timesteps, 0., peak_blk_sk[i_bb_det], -1., -1.);
+      int freq_idx = bb_det[i_bb_det].sb1 * nf_subband;
+      DedopplerHit hit(metadata, freq_idx, bb_det[i_bb_det].fctr_MHz, bb_det[i_bb_det].f1_MHz,
+                       bb_det[i_bb_det].f2_MHz, 0, 0., bb_det[i_bb_det].snr, 0, coarse_channel,
+                       num_timesteps, 0., bb_det[i_bb_det].peak_blk_sk, -1., -1.);
       output->push_back(hit);
     }
   }
@@ -541,7 +534,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
-  if (coarse_channel == 0) {
+  if ((coarse_channel == 0) && (debug >= 1)) {
     printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
            metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
     printf("drift_rate_resolution=%.3f drift_timesteps=%d diagonal_drift_rate=%.3f\n",
@@ -658,7 +651,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
             if (hit_count == 1) {
               printf("\n");
             }
-            printf("hit %d: chnl %d sb %3d %8d %5d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK "
+            printf("hit %2d: chnl %2d sb %3d %8d %5d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK "
                    "%5.2f (%d), Nbox %d, SK %5.3f, maxmin  %5.3f\n",
                    hit_count, coarse_channel, candidate_freq / nf_subband,
                    candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
