@@ -21,17 +21,6 @@ struct DedopplerConfig {
   BoxcarConfig boxcar;
 };
 
-struct BBdet {
-  int sb1 = 0;
-  int sb2 = 0;
-  float f1_MHz = 0.f;
-  float f2_MHz = 0.f;
-  float fctr_MHz = 0.f;
-  float bw_MHz = 0.f;
-  float snr = 0.f;
-  float peak_blk_sk = 0.f;
-};
-
 class Dedopplerer {
  public:
   const int num_timesteps;

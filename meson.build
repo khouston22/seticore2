@@ -50,6 +50,7 @@ srcs = [
     'beamforming_pipeline.cpp',
     'boxcar.cpp',
     'boxcar.cu',
+    'broadband_detector.cpp',
     'complex_buffer.cu',
     'cuda_util.cu',
     'dedoppler.cpp',
