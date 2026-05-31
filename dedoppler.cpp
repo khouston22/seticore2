@@ -119,6 +119,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   assert(input.num_timesteps == rounded_num_timesteps);
   assert(input.num_channels == num_channels);
 
+  // Setup: drift blocks, channel metadata, timing
   double diagonal_drift_rate = drift_rate_resolution * drift_timesteps;
   double normalized_max_drift = max_drift / abs(diagonal_drift_rate);
   int min_drift_block = floor(-normalized_max_drift);
@@ -145,6 +146,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
 
+  // Sum frequency columns (incoherent power spectrum)
   if (!input.managed) {
     cudaMemcpy(input.d_sg_data, input.sg_data, input.bytes, cudaMemcpyHostToDevice);
     checkCuda("cudaMemcpy-d_sg");
@@ -162,6 +164,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   double t_sumcols_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
+
+  // Replace DC spike and sync corrected bins to GPU
 
   if (debug >= 3) {
     fmt::print("Column sums: DC vicinity:");
@@ -189,6 +193,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
                (2 * DedopplerConfig::kDcReplaceOfs + 1) * sizeof(float), cudaMemcpyHostToDevice);
   }
   checkCuda("d_sg_data DC h->d memcpy");
+
+  // Subband normalization: first pass stats
 
   int n_subband = SubbandNormalizer::chooseSubbandCount(num_channels);
   int nf_subband = num_channels / n_subband;
@@ -239,6 +245,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     StatsUtil::printXSegmentStride(cpu_mu_vector, n_subband, nf_subband, 1.0);
   }
 
+  // Equalize spectrogram rows and recompute column sums
+
   for (int i_time = 0; i_time < num_timesteps; i_time++) {
     subband_.equalizeSpectrogramRowGpu(&input.d_sg_data[i_time * num_channels], gpu_mu_vector,
                                        num_channels);
@@ -257,6 +265,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   float subband_std_no_clip[SubbandNormalizer::kNominalSubbands];
   subband_.calcSubbandMeanStd(cpu_column_sums, num_channels, n_subband, false, subband_limit,
                               subband_work, subband_mean_no_clip, subband_std_no_clip);
+
+  // Block SK statistics (clipped vs no-clip)
 
   float blk_sk_clip[SubbandNormalizer::kNominalSubbands];
   float blk_sk_no_clip[SubbandNormalizer::kNominalSubbands];
@@ -315,6 +325,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
              coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
   
 
+  // Broadband detection
+
   float bb_z_det = 5.f;
   float bb_det_threshold = 1.02f / sqrt(2 * n_avg) * (1.f + bb_z_det / sqrt(nf_subband));
   float bb_det_threshold_sk = pow(bb_det_threshold, 2.0) * 2 * n_avg;
@@ -336,6 +348,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       output->push_back(hit);
     }
   }
+
+  // Revise subband std inside BB segments; build mu/std/sigma_scale
 
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
     if (bb_detector.subbandDetected()[i_subband] > 0.f) {
@@ -381,6 +395,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   double t_scale_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
+
+  // Taylor drift search with boxcar path SNRs
 
   int n_zp = config_.boxcar.n_zp();
   int max_nbox_bw = 1;
@@ -446,8 +462,10 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
                max_drift, normalized_max_drift, drift_timesteps, window_size, window_size * fs);
   }
 
-  const int n_stat_freqs = 20;
+  const int n_stat_freqs = 20;  // within stamp, calculate SK and other stats on this many adjacent start freqs
   LineStats lstats[n_stat_freqs];
+
+  // Scan top path SNRs for drift hits
 
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
@@ -513,20 +531,24 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       }
 
       if (found_hit) {
+        
+        // extract stamp submatrix in potential hit vicinity and calculate SK (spectral kurtosis)
+
+        // ensure stamp starts on 128 byte boundary
         int stamp_boundary_quant = 128 / static_cast<int>(sizeof(float));
         int stamp_width =
             stamp_boundary_quant * (DedopplerConfig::kStampNFreqMax / stamp_boundary_quant);
         int stamp_rows = num_timesteps;
-        int stamp_start_column0 = candidate_freq + drift_bins / 2 - stamp_width / 2;
-        int stamp_start_column =
-            min(num_channels - stamp_width, max(0, stamp_start_column0));
-        stamp_start_column = stamp_boundary_quant * (stamp_start_column / stamp_boundary_quant);
-        int hit_start_mid = candidate_freq - stamp_start_column;
+        int stamp_start_freq_idx0 = candidate_freq + drift_bins / 2 - stamp_width / 2;
+        int stamp_start_freq_idx =
+            min(num_channels - stamp_width, max(0, stamp_start_freq_idx0));
+        stamp_start_freq_idx = stamp_boundary_quant * (stamp_start_freq_idx / stamp_boundary_quant);
+        int hit_start_col = candidate_freq - stamp_start_freq_idx;
         int hit_nbox = cpu_top_path_Nbox[candidate_freq];
         float drift_bins_per_line = static_cast<float>(drift_bins) / drift_timesteps;
 
         stamp_.extractStampGpu(stamp_.gpuStamp(), input.d_sg_data, num_timesteps, num_channels,
-                               stamp_start_column, stamp_width, 0, stamp_rows, hit_nbox);
+                               stamp_start_freq_idx, stamp_width, 0, stamp_rows, hit_nbox);
         cudaMemcpy(stamp_.cpuStamp(), stamp_.gpuStamp(),
                    stamp_width * stamp_rows * sizeof(float), cudaMemcpyDeviceToHost);
         checkCuda("cudaMemcpy stamp dev to host");
@@ -534,14 +556,15 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         float mu_noise = cpu_subband_mean[i_subband];
         float std_noise = cpu_subband_std[i_subband];
         int start_row = 0;
-        int start_col = hit_start_mid - 2;
+        int start_col = hit_start_col - 2;  // stats calc over [hit_start_col-2, hit_start_col-2+n_stat_freqs)
+                                            // in debug, can verify that best snr occurs at hit_start_col
 
         StampAnalyzer::computeSk(stamp_.cpuStamp(), stamp_rows, stamp_width, mu_noise, std_noise,
                                  n_sti, hit_nbox, start_row, stamp_rows, start_col, n_stat_freqs,
                                  drift_bins_per_line, lstats);
 
-        float hit_sk = lstats[hit_start_mid - start_col].sk;
-        float hit_max_min = lstats[hit_start_mid - start_col].max_min_ratio;
+        float hit_sk = lstats[hit_start_col - start_col].sk;
+        float hit_max_min = lstats[hit_start_col - start_col].max_min_ratio;
 
         if (do_hit_screen && hit_sk >= 3) {
           found_hit = false;
@@ -562,14 +585,14 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
           }
 
           if (debug >= 3) {
-            int hit_end_mid = hit_start_mid + drift_bins;
+            int hit_end_col = hit_start_col + drift_bins;
             int hit_nbox2 = hit_nbox / 2;
-            int hit_start_min = hit_start_mid - hit_nbox2;
-            int hit_end_max = hit_end_mid - hit_nbox2 + hit_nbox - 1;
+            int hit_start_min = hit_start_col - hit_nbox2;
+            int hit_end_max = hit_end_col - hit_nbox2 + hit_nbox - 1;
             stamp_print_count++;
             if (stamp_print_count <= 10) {
               stamp_.printHitStampDebug(coarse_channel, hit_count, candidate_freq, drift_bins,
-                                        stamp_start_column, hit_start_mid, hit_end_mid, hit_nbox,
+                                        stamp_start_freq_idx, hit_start_col, hit_end_col, hit_nbox,
                                         hit_start_min, hit_end_max, stamp_width, stamp_rows,
                                         drift_bins_per_line, n_stat_freqs, lstats);
             }
@@ -588,6 +611,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   double t_log_hits_sec = (timeInMS() - start_ms) * .001;
   double t_search_sec = (timeInMS() - start_ms_all) * .001;
+
+  // Timing summary
 
   if (debug >= 1) {     
     fmt::print("\nElapsed times: coarse chnl {}, UM {}, fft {}, sti {}, lti {}\n", coarse_channel,

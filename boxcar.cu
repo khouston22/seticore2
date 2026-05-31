@@ -4,10 +4,14 @@
 
 namespace {
 
+// Boxcar: binary decomposition helpers
+
+// Return bit i of n (used to select power-of-2 boxcar terms)
 int readBit(int n, int bit_idx) {
   return (n & (1 << bit_idx)) >> bit_idx;
 }
 
+// Elementwise z[i] = x[i] + y[i]
 __global__ void gpu_boxcar_add_xy_z(int n, float* z, const float* x, const float* y) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < n) {
@@ -15,6 +19,7 @@ __global__ void gpu_boxcar_add_xy_z(int n, float* z, const float* x, const float
   }
 }
 
+// Elementwise z[i] = x[i] * scale
 __global__ void gpu_boxcar_scale(int n, float* z, const float* x, float scale) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < n) {
@@ -22,6 +27,7 @@ __global__ void gpu_boxcar_scale(int n, float* z, const float* x, float scale) {
   }
 }
 
+// Build zero-padded power-of-2 boxcar prefix-sum table on GPU
 void genBoxcarP2SumsGpu(float* gpu_p2_path_sums, const float* gpu_dd_sums_line, int n_freq,
                         int log2_max_p2, int n_zp) {
   int nbox_p2_max = 1 << log2_max_p2;
@@ -31,6 +37,7 @@ void genBoxcarP2SumsGpu(float* gpu_p2_path_sums, const float* gpu_dd_sums_line, 
 
   assert(n_zp >= nbox_max);
 
+  // Zero-pad both ends of each p2 row
   for (int i_nbox = 0; i_nbox <= log2_max_p2; i_nbox++) {
     float* p2_row = &gpu_p2_path_sums[i_nbox * n_freq_ext];
     cudaMemsetAsync(&p2_row[0], 0, n_zp * sizeof(float));
@@ -38,10 +45,12 @@ void genBoxcarP2SumsGpu(float* gpu_p2_path_sums, const float* gpu_dd_sums_line, 
     checkCuda("p2-cudaMemsetAsync");
   }
 
+  // Copy input line into center of p2=1 row
   float* p2_row = &gpu_p2_path_sums[0];
   cudaMemcpy(&p2_row[n_zp], gpu_dd_sums_line, n_freq * sizeof(float), cudaMemcpyDeviceToDevice);
   checkCuda("cudaMemcpy-p2=1");
 
+  // Build p2=2,4,... rows by pairwise sum with doubling stride
   int stride = 1;
   for (int i_nbox = 1; i_nbox <= log2_max_p2; i_nbox++) {
     float* p2_row_new = &gpu_p2_path_sums[i_nbox * n_freq_ext];
@@ -55,6 +64,7 @@ void genBoxcarP2SumsGpu(float* gpu_p2_path_sums, const float* gpu_dd_sums_line, 
   }
 }
 
+// Compose arbitrary-width boxcar sum from p2 table on GPU
 void genBoxcarSumGpu(float* gpu_nbox_path_sum, float* gpu_p2_path_sums, float* gpu_work, int nbox,
                      int n_freq, int log2_max_p2, int n_zp) {
   assert(nbox >= 1);
@@ -69,6 +79,7 @@ void genBoxcarSumGpu(float* gpu_nbox_path_sum, float* gpu_p2_path_sums, float* g
   float* work_out_row = &gpu_work[0];
   const float* p2_row = &gpu_p2_path_sums[0];
 
+  // Seed work row from p2=1 if bit 0 of nbox is set
   if (readBit(nbox, 0)) {
     cudaMemcpy(&work_out_row[0], &p2_row[0], n_freq_ext * sizeof(float), cudaMemcpyDeviceToDevice);
     checkCuda("cudaMemcpy-boxcar");
@@ -77,6 +88,7 @@ void genBoxcarSumGpu(float* gpu_nbox_path_sum, float* gpu_p2_path_sums, float* g
   int work_out_idx = 0;
   int work_in_idx = 1;
 
+  // Add selected p2 rows into double-buffered work rows
   for (int i_nbox = 1; i_nbox <= log2_max_p2; i_nbox++) {
     int nbox_p2 = 1 << i_nbox;
     if (readBit(nbox, i_nbox) == 1) {
@@ -93,6 +105,7 @@ void genBoxcarSumGpu(float* gpu_nbox_path_sum, float* gpu_p2_path_sums, float* g
     }
   }
 
+  // Extract centered, normalized boxcar sum into output
   int shift = nbox / 2;
   float scale = 1.f / nbox;
   gpu_boxcar_scale<<<grid_size, CUDA_MAX_THREADS>>>(
@@ -119,16 +132,21 @@ BoxcarWorkspace::~BoxcarWorkspace() {
   cudaFree(gpu_nbox_path_sum_);
 }
 
+// BoxcarWorkspace: GPU boxcar filtering
+
+// Launch GPU p2 prefix-sum table build
 void BoxcarWorkspace::computeP2SumsGpu(const float* dd_sums_line, int log2_max_p2_runtime,
                                        int n_zp) {
   genBoxcarP2SumsGpu(gpu_p2_path_sums_, dd_sums_line, num_freq_, log2_max_p2_runtime, n_zp);
 }
 
+// Launch GPU boxcar sum from p2 table
 void BoxcarWorkspace::computeSumGpu(int nbox, int log2_max_p2_runtime, int n_zp) {
   genBoxcarSumGpu(gpu_nbox_path_sum_, gpu_p2_path_sums_, gpu_boxcar_work_, nbox, num_freq_,
                   log2_max_p2_runtime, n_zp);
 }
 
+// GPU boxcar filter: build p2 table then compose nbox sum
 const float* BoxcarWorkspace::filterLineGpu(const float* dd_sums_line, int nbox,
                                             int log2_max_p2_runtime) {
   computeP2SumsGpu(dd_sums_line, log2_max_p2_runtime, config_.n_zp());

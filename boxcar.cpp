@@ -8,12 +8,18 @@
 
 namespace {
 
+// Boxcar: binary decomposition helpers
+
+// Return bit i of n (used to select power-of-2 boxcar terms)
 int readBit(int n, int bit_idx) {
   return (n & (1 << bit_idx)) >> bit_idx;
 }
 
 }  // namespace
 
+// BoxcarWorkspace: CPU boxcar filtering and debug
+
+// Build zero-padded power-of-2 boxcar prefix-sum table
 void BoxcarWorkspace::computeP2SumsCpu(const float* dd_sums_line, int log2_max_p2_runtime,
                                        float* p2_path_sums, int n_zp) const {
   int n_freq = num_freq_;
@@ -23,17 +29,20 @@ void BoxcarWorkspace::computeP2SumsCpu(const float* dd_sums_line, int log2_max_p
 
   assert(n_zp >= nbox_max);
 
+  // Zero-pad both ends of each p2 row
   for (int i_nbox = 0; i_nbox <= log2_max_p2_runtime; i_nbox++) {
     float* p2_row = &p2_path_sums[i_nbox * n_freq_ext];
     memset(&p2_row[0], 0, n_zp * sizeof(float));
     memset(&p2_row[n_freq + n_zp], 0, n_zp * sizeof(float));
   }
 
+  // Copy input line into center of p2=1 row
   float* p2_row = &p2_path_sums[0];
   for (int i_freq = n_zp; i_freq < n_freq + n_zp; i_freq++) {
     p2_row[i_freq] = dd_sums_line[i_freq - n_zp];
   }
 
+  // Build p2=2,4,... rows by pairwise sum with doubling stride
   int stride = 1;
   for (int i_nbox = 1; i_nbox <= log2_max_p2_runtime; i_nbox++) {
     float* p2_row_new = &p2_path_sums[i_nbox * n_freq_ext];
@@ -47,6 +56,7 @@ void BoxcarWorkspace::computeP2SumsCpu(const float* dd_sums_line, int log2_max_p
   }
 }
 
+// Compose arbitrary-width boxcar sum from p2 table via binary decomposition
 void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int nbox,
                                     int log2_max_p2_runtime, int n_zp,
                                     float* nbox_path_sum) const {
@@ -60,6 +70,7 @@ void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int 
   float* work_out_row = &work[0];
   const float* p2_row = &p2_path_sums[0];
 
+  // Seed work row from p2=1 if bit 0 of nbox is set
   if (readBit(nbox, 0)) {
     for (int i_freq = 0; i_freq < n_freq + 2 * n_zp; i_freq++) {
       work_out_row[i_freq] = p2_row[i_freq];
@@ -69,6 +80,7 @@ void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int 
   int work_out_idx = 0;
   int work_in_idx = 1;
 
+  // Add selected p2 rows into double-buffered work rows
   for (int i_nbox = 1; i_nbox <= log2_max_p2_runtime; i_nbox++) {
     int nbox_p2 = 1 << i_nbox;
     if (readBit(nbox, i_nbox) == 1) {
@@ -85,6 +97,7 @@ void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int 
     }
   }
 
+  // Extract centered, normalized boxcar sum into output
   int shift = nbox / 2;
   float scale = 1.f / nbox;
   for (int i_freq = 0; i_freq < n_freq; i_freq++) {
@@ -92,6 +105,7 @@ void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int 
   }
 }
 
+// Build boxcar widths for drift search (drift width plus powers of two)
 vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int nbox_p2_max) {
   vector<int> nbox_list;
   nbox_list.reserve(32);
@@ -119,6 +133,7 @@ vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int
   return nbox_list;
 }
 
+// Debug print boxcar width list for a drift block
 void BoxcarWorkspace::printNboxList(const vector<int>& nbox_list, int drift_block) {
   fmt::print("drift_block={}, n_Nbox={}, Nbox = ", drift_block, nbox_list.size());
   for (int nbox : nbox_list) {
@@ -127,6 +142,7 @@ void BoxcarWorkspace::printNboxList(const vector<int>& nbox_list, int drift_bloc
   fmt::print("\n");
 }
 
+// Debug print scaled segment of a boxcar array
 void BoxcarWorkspace::printNboxSegment(const float* x, int n_pts, int start_offset, float scale) {
   for (int i_ofs = start_offset; i_ofs < start_offset + n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {

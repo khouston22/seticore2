@@ -3,6 +3,9 @@
 
 #include "broadband_detector.h"
 
+// BroadbandDetector: subband broadband detection
+
+// Detect broadband RFI from elevated subband std; dilate, cluster, and score segments
 void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_subband_dilation,
                                         int debug, float bb_det_threshold, float bb_det_threshold_sk,
                                         float f0_sb_MHz, float df_sb_MHz,
@@ -11,6 +14,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
                                         const float* cpu_subband_std) {
   int bb_subband_prelim_det_count = 0;
 
+  // Threshold subband std for preliminary detections
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
     if (subband_std_bb_det[i_subband] > bb_det_threshold) {
       bb_subband_detected_[i_subband] = 1.0f;
@@ -28,6 +32,9 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
   }
 
   if (n_subband_dilation>0) {
+    // Dilate detection flags at rising/falling edges
+    // This expands each broadband detection by n_subband_dilation subbands to left or right,
+    // possibly combining multiple BB detections into one
     for (int i_subband = n_subband_dilation; i_subband < n_subband; i_subband++) {
       if ((bb_subband_detected_[i_subband] > 0.f) &&
           (bb_subband_detected_[i_subband - 1] == 0.f)) {
@@ -46,6 +53,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     }
   }
 
+  // Count dilated detections and optional debug print
   int bb_subband_det_count = 0;
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
     if (bb_subband_detected_[i_subband] > 0.f) {
@@ -65,6 +73,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     }
   }
 
+  // Cluster contiguous subbands into BBdet segments
   int bb_det_idx = -1;
   bool in_bb_cluster = false;
 
@@ -96,6 +105,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
   
   n_bb_det_ = bb_det_idx + 1;
 
+  // Peak SNR and block SK per broadband detection
   for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
     int i_bb_det1 = bb_det_[i_bb_det].sb1 * nf_subband;
     int n_bb_pts = (bb_det_[i_bb_det].sb2 - bb_det_[i_bb_det].sb1 + 1) * nf_subband;
@@ -109,6 +119,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     bb_det_[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk[i_bb_sb1], n_bb_sb);
   }
 
+  // Debug summary of each detection
   if (debug >= 1) {
     for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
       fmt::print("BB det {:3d}: subband {:3d} - {:3d}, {:8.2f} - {:8.2f} MHz, center {:8.2f} MHz, BW {:5.0f} KHz, "

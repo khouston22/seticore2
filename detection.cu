@@ -1,5 +1,8 @@
 #include "detection.h"
 
+// Detection: subband normalization kernels
+
+// Linearly interpolate subband mean/std to full frequency axis
 __global__ void gpu_subband_interpolate(float* x, int n_freq, const float* x_subband,
                                         int n_subband) {
   int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
@@ -28,6 +31,7 @@ __global__ void gpu_subband_interpolate(float* x, int n_freq, const float* x_sub
   x[i_freq] = x_subband[i_subband] + df * scale;
 }
 
+// Divide spectrogram row by per-frequency mean (equalize)
 __global__ void gpu_local_mean_scale(float* x, const float* mu, int n_freq) {
   int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
   if (i_freq < 0 || i_freq >= n_freq) {
@@ -36,6 +40,7 @@ __global__ void gpu_local_mean_scale(float* x, const float* mu, int n_freq) {
   x[i_freq] = x[i_freq] / mu[i_freq];
 }
 
+// Per-frequency SNR scale factor from std and nbox gain
 __global__ void gpu_compute_sigma_scale(float* sigma_scale, const float* sigma, float nbox_gain,
                                         int n_freq) {
   int i_freq = blockIdx.x * blockDim.x + threadIdx.x;
@@ -45,6 +50,9 @@ __global__ void gpu_compute_sigma_scale(float* sigma_scale, const float* sigma, 
   sigma_scale[i_freq] = nbox_gain / sigma[i_freq];
 }
 
+// Detection: stamp extraction kernel
+
+// Copy drift stamp submatrix with centered boxcar averaging
 __global__ void gpu_copy_submatrix_boxcar(float* dst_matrix, const float* src_matrix,
                                           int src_n_rows, int src_n_freq, int start_freq,
                                           int n_freq_to_copy, int start_row, int n_rows_to_copy,
@@ -64,6 +72,9 @@ __global__ void gpu_copy_submatrix_boxcar(float* dst_matrix, const float* src_ma
   }
 }
 
+// SubbandNormalizer: GPU launch wrappers
+
+// Launch subband-to-frequency interpolation
 void SubbandNormalizer::interpolateToFreqGpu(float* gpu_out, int n_freq, const float* gpu_subband,
                                              int n_subband) {
   int grid_size = (n_freq + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
@@ -71,6 +82,7 @@ void SubbandNormalizer::interpolateToFreqGpu(float* gpu_out, int n_freq, const f
   checkCuda("gpu_subband_interpolate");
 }
 
+// Launch spectrogram row equalization
 void SubbandNormalizer::equalizeSpectrogramRowGpu(float* d_sg_row, const float* gpu_mu,
                                                   int n_freq) {
   int grid_size = (n_freq + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
@@ -78,6 +90,7 @@ void SubbandNormalizer::equalizeSpectrogramRowGpu(float* d_sg_row, const float* 
   checkCuda("gpu_local_mean_scale");
 }
 
+// Launch sigma scale computation
 void SubbandNormalizer::computeSigmaScaleGpu(float* gpu_sigma_scale, const float* gpu_std,
                                              float nbox_gain, int n_freq) {
   int grid_size = (n_freq + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
@@ -86,6 +99,9 @@ void SubbandNormalizer::computeSigmaScaleGpu(float* gpu_sigma_scale, const float
   checkCuda("gpu_compute_sigma_scale");
 }
 
+// StampAnalyzer: GPU stamp extraction
+
+// Launch boxcar-averaged stamp submatrix copy
 void StampAnalyzer::extractStampGpu(float* dst, const float* src, int src_n_rows, int src_n_freq,
                                     int start_freq, int n_freq_to_copy, int start_row,
                                     int n_rows_to_copy, int nbox) {

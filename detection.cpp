@@ -4,6 +4,9 @@
 
 #include "detection.h"
 
+// StatsUtil: mean, min/max, DC spike replacement
+
+// Sample mean and std dev (double accumulators)
 void StatsUtil::meanStdDev(const float* x, int n, float* mean, float* std_dev) {
   double sum_x2 = 0.;
   double sum_x = 0.;
@@ -17,6 +20,7 @@ void StatsUtil::meanStdDev(const float* x, int n, float* mean, float* std_dev) {
   *std_dev = sqrt((sum_x2 - n * (*mean) * (*mean)) / (n - 1));
 }
 
+// Sample mean and std dev (float accumulators)
 void StatsUtil::meanStdDev2(const float* x, int n, float* mean, float* std_dev) {
   float sum_x2 = 0.f;
   float sum_x = 0.f;
@@ -30,6 +34,7 @@ void StatsUtil::meanStdDev2(const float* x, int n, float* mean, float* std_dev) 
   *std_dev = sqrt((sum_x2 - n * (*mean) * (*mean)) / (n - 1));
 }
 
+// Maximum value in array
 float StatsUtil::max(const float* x, int n) {
   float x_max = x[0];
   for (int i = 1; i < n; i++) {
@@ -38,6 +43,7 @@ float StatsUtil::max(const float* x, int n) {
   return x_max;
 }
 
+// Minimum value in array
 float StatsUtil::min(const float* x, int n) {
   float x_min = x[0];
   for (int i = 1; i < n; i++) {
@@ -46,6 +52,7 @@ float StatsUtil::min(const float* x, int n) {
   return x_min;
 }
 
+// Replace DC spike bins with mean of adjacent samples
 void StatsUtil::replaceDcSpike(float* x, int dc_ofs, int mean_pts) {
   float adj_mean = 0.f;
   for (int i_ofs = -dc_ofs - mean_pts; i_ofs < -dc_ofs; i_ofs++) {
@@ -61,6 +68,9 @@ void StatsUtil::replaceDcSpike(float* x, int dc_ofs, int mean_pts) {
   }
 }
 
+// StatsUtil: debug array printers
+
+// Debug print array centered at index 0 (negative offsets)
 void StatsUtil::printXLr(float* x, int max_ofs, float scale) {
   for (int i_ofs = -max_ofs; i_ofs < max_ofs; i_ofs++) {
     if (i_ofs % 10 == 0) {
@@ -75,6 +85,7 @@ void StatsUtil::printXLr(float* x, int max_ofs, float scale) {
   }
 }
 
+// Debug print contiguous segment from index 0
 void StatsUtil::printXSegment(float* x, int n_pts, float scale) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
@@ -89,6 +100,7 @@ void StatsUtil::printXSegment(float* x, int n_pts, float scale) {
   }
 }
 
+// Debug print segment with stride
 void StatsUtil::printXSegmentStride(float* x, int n_pts, int stride, float scale) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
@@ -103,6 +115,7 @@ void StatsUtil::printXSegmentStride(float* x, int n_pts, int stride, float scale
   }
 }
 
+// Debug print segment with frequency axis labels
 void StatsUtil::printFXSegment(float* x, int n_pts, float scale, float f0, float df) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
@@ -117,6 +130,8 @@ void StatsUtil::printFXSegment(float* x, int n_pts, float scale, float f0, float
   }
 }
 
+// Debug print submatrix with per-row column drift shift
+// A drifting tone should have a constant column in printout
 void StatsUtil::printXSubmatrix(float* x, int n_row_x, int n_col_x, int start_row, int n_row,
                                 int start_col, int n_col, float col_shift_per_row, float scale) {
   for (int i_row = start_row; i_row < start_row + n_row; i_row++) {
@@ -134,6 +149,9 @@ void StatsUtil::printXSubmatrix(float* x, int n_row_x, int n_col_x, int start_ro
   fmt::print("\n\n");
 }
 
+// SubbandNormalizer: subband count and sigma-clipped stats
+
+// Choose subband count from channel width (halve until min freq/subband met)
 int SubbandNormalizer::chooseSubbandCount(int num_channels) {
   int n_subband = kNominalSubbands;
   int nf_subband = num_channels / n_subband;
@@ -144,6 +162,7 @@ int SubbandNormalizer::chooseSubbandCount(int num_channels) {
   return n_subband;
 }
 
+// Per-subband mean/std, optionally sigma-clipped via subband_limit
 void SubbandNormalizer::calcSubbandMeanStd(const float* spectrum, int num_channels, int n_subband,
                                            bool do_limit, float* subband_limit, float* work,
                                            float* subband_mean, float* subband_std) const {
@@ -164,6 +183,7 @@ void SubbandNormalizer::calcSubbandMeanStd(const float* spectrum, int num_channe
   }
 }
 
+// Three-pass sigma-clipped subband mean/std (shear_constant limits)
 void SubbandNormalizer::multipassMeanStd(const float* spectrum, int num_channels, int n_subband,
                                          float shear_constant, float* work, float* subband_mean,
                                          float* subband_std, float* subband_limit) const {
@@ -209,6 +229,10 @@ SubbandNormalizer::~SubbandNormalizer() {
   cudaFreeHost(cpu_mu_std_work_);
 }
 
+// StampAnalyzer: per-column SK and line stats
+
+// Per-column spectral kurtosis, SNR, and power stats on drift-shifted stamp 
+// (spectrogram submatrix near detection)
 void StampAnalyzer::computeSk(const float* stamp, int num_timesteps, int n_freq, float mu_noise,
                               float std_noise, int n_sti, int nbox, int start_row, int n_row,
                               int start_col, int n_col, float col_shift_per_row,
@@ -241,24 +265,27 @@ void StampAnalyzer::computeSk(const float* stamp, int num_timesteps, int n_freq,
   }
 }
 
+// StampAnalyzer: hit stamp debug dump
+
+// Debug dump of hit stamp submatrix and LineStats row
 void StampAnalyzer::printHitStampDebug(int coarse_channel, int hit_count, int candidate_freq,
-                                       int drift_bins, int stamp_start_column, int hit_start_mid,
-                                       int hit_end_mid, int hit_nbox, int hit_start_min,
+                                       int drift_bins, int stamp_start_freq_idx, int hit_start_col,
+                                       int hit_end_col, int hit_nbox, int hit_start_min,
                                        int hit_end_max, int stamp_width, int stamp_rows,
                                        float drift_bins_per_line, int n_stat_freqs,
                                        const LineStats* lstats) const {
   fmt::print("       stamp {} x {}: ifreq {} dbins {}, src start {} stamp {} - {}, Nbox {}, "
              "{} - {}\n\n",
-             stamp_width, stamp_rows, candidate_freq, drift_bins, stamp_start_column,
-             hit_start_mid, hit_end_mid, hit_nbox, hit_start_min, hit_end_max);
+             stamp_width, stamp_rows, candidate_freq, drift_bins, stamp_start_freq_idx,
+             hit_start_col, hit_end_col, hit_nbox, hit_start_min, hit_end_max);
   int n_row = min(16, num_timesteps_);
   int n_col = 10;
-  int start_col = hit_start_mid - 2;
+  int start_col = hit_start_col - 2;
   fmt::print("Shifted stamp submatrix for coarse channel {}, hit {}, Nbox {}, bins/line "
              "{:.1f}, mid col {} (x10):\n",
-             coarse_channel, hit_count, hit_nbox, drift_bins_per_line, hit_start_mid);
+             coarse_channel, hit_count, hit_nbox, drift_bins_per_line, hit_start_col);
   for (int i_row = 0; i_row < n_row; i_row++) {
-    fmt::print("{:.0f} ", hit_start_mid + drift_bins_per_line * i_row);
+    fmt::print("{:.0f} ", hit_start_col + drift_bins_per_line * i_row);
   }
   fmt::print("\n");
   StatsUtil::printXSubmatrix(cpu_stamp_, num_timesteps_, stamp_width, 0, n_row, start_col, n_col,

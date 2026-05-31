@@ -1,5 +1,8 @@
 #include "dedoppler_kernels.h"
 
+// Dedoppler: drift path SNR kernels
+
+// Update per-frequency top path SNR for one drift/nbox step
 __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_timesteps, int num_freqs,
                                       int path_offset, int drift_block, float mu,
                                       float* sigma_scale, int nbox, float* top_path_snrs,
@@ -33,6 +36,9 @@ __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_times
   }
 }
 
+// Dedoppler: column sum kernels
+
+// Sum spectrogram columns on GPU with scale factor
 __global__ void sumColumns(const float* input, float* sums, int num_timesteps, int num_freqs,
                            float scale) {
   int freq = blockIdx.x * blockDim.x + threadIdx.x;
@@ -46,6 +52,7 @@ __global__ void sumColumns(const float* input, float* sums, int num_timesteps, i
   sums[freq] *= scale;
 }
 
+// Sum spectrogram columns on CPU (reference path)
 void sumColumnsCpu(const float* input, float* sums, int num_timesteps, int n_freq) {
   for (int time = 0; time < num_timesteps; time++) {
     if (time == 0) {
@@ -61,6 +68,7 @@ void sumColumnsCpu(const float* input, float* sums, int num_timesteps, int n_fre
   }
 }
 
+// Launch sumColumns kernel
 void launchSumColumns(const float* input, float* sums, int num_timesteps, int num_freqs,
                       float scale) {
   int grid_size = (num_freqs + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;
@@ -68,6 +76,7 @@ void launchSumColumns(const float* input, float* sums, int num_timesteps, int nu
   checkCuda("sumColumns");
 }
 
+// Launch findTopPathSNRs_1step kernel
 void launchFindTopPathSNRs(const float* path_sums_line, int num_timesteps, int num_freqs,
                            int path_offset, int drift_block, float mu, float* sigma_scale,
                            int nbox, float* top_path_snrs, int* top_drift_blocks,
