@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
+#include <fmt/core.h>
 
 #include "boxcar.h"
 
@@ -120,19 +120,19 @@ vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int
 }
 
 void BoxcarWorkspace::printNboxList(const vector<int>& nbox_list, int drift_block) {
-  printf("drift_block=%d, n_Nbox=%zu, Nbox = ", drift_block, nbox_list.size());
+  fmt::print("drift_block={}, n_Nbox={}, Nbox = ", drift_block, nbox_list.size());
   for (int nbox : nbox_list) {
-    printf("%d ", nbox);
+    fmt::print("{} ", nbox);
   }
-  printf("\n");
+  fmt::print("\n");
 }
 
 void BoxcarWorkspace::printNboxSegment(const float* x, int n_pts, int start_offset, float scale) {
   for (int i_ofs = start_offset; i_ofs < start_offset + n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
-      printf("\n%6d   ", i_ofs);
+      fmt::print("\n{:6d}   ", i_ofs);
     }
-    printf("%8.0f ", x[i_ofs] * scale);
+    fmt::print("{:8.0f} ", x[i_ofs] * scale);
   }
-  printf("\n");
+  fmt::print("\n");
 }

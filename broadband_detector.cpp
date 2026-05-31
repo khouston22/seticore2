@@ -1,5 +1,5 @@
 #include <cmath>
-#include <cstdio>
+#include <fmt/core.h>
 
 #include "broadband_detector.h"
 
@@ -22,8 +22,8 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
 
   if (debug >= 1) {
     if (bb_subband_prelim_det_count == 0) {
-      printf("Broadband detections, threshold=%.3f (SK %.2f): No BB detections\n", bb_det_threshold,
-             bb_det_threshold_sk);
+      fmt::print("Broadband detections, threshold={:.3f} (SK {:.2f}): No BB detections\n",
+                 bb_det_threshold, bb_det_threshold_sk);
     }
   }
 
@@ -55,12 +55,12 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
 
   if (debug >= 1) {
     if (bb_subband_det_count == 0) {
-      printf("Broadband detections after dilation (%d), threshold=%.3f (SK %.2f): No BB detections\n",
-             n_subband_dilation, bb_det_threshold, bb_det_threshold_sk);
+      fmt::print("Broadband detections after dilation ({}), threshold={:.3f} (SK {:.2f}): No BB detections\n",
+                 n_subband_dilation, bb_det_threshold, bb_det_threshold_sk);
     } else {
-      printf("Broadband detections after dilation (%d), threshold=%.3f (SK %.2f): %d subband "
-             "detections\n",
-             n_subband_dilation, bb_det_threshold, bb_det_threshold_sk, bb_subband_det_count);
+      fmt::print("Broadband detections after dilation ({}), threshold={:.3f} (SK {:.2f}): {} subband "
+                 "detections\n",
+                 n_subband_dilation, bb_det_threshold, bb_det_threshold_sk, bb_subband_det_count);
       StatsUtil::printFXSegment(bb_subband_detected_, n_subband, 1.0, f0_sb_MHz, df_sb_MHz);
     }
   }
@@ -111,11 +111,11 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
 
   if (debug >= 1) {
     for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
-      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, "
-            "Peak BlkSK %5.2f, SNR %5.2f dB\n",
-            i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
-            bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
-            bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
+      fmt::print("BB det {:3d}: subband {:3d} - {:3d}, {:8.2f} - {:8.2f} MHz, center {:8.2f} MHz, BW {:5.0f} KHz, "
+                 "Peak BlkSK {:5.2f}, SNR {:5.2f} dB\n",
+                 i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
+                 bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
+                 bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
     }
   }
 }

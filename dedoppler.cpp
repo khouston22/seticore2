@@ -1,12 +1,13 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <iostream>
 #include <numeric>
 #include <vector>
+
+#include <fmt/core.h>
 
 #include "boxcar.h"
 #include "broadband_detector.h"
@@ -136,10 +137,10 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int hit_count = 0;
   int stamp_print_count = 0;
 
-  printf("\ncoarse channel %d: %.3f-%.3f MHz, FFT-size=%.0fK, n_sti=%d, n_lti=%d, n_avg=%d, "
-         "Drift Blocks %d to %d\n",
-         coarse_channel, f1_MHz, f2_MHz, num_channels / 1024., n_sti, n_lti, n_avg,
-         min_drift_block, max_drift_block);
+  fmt::print("\ncoarse channel {}: {:.3f}-{:.3f} MHz, FFT-size={:.0f}K, n_sti={}, n_lti={}, n_avg={}, "
+             "Drift Blocks {} to {}\n",
+             coarse_channel, f1_MHz, f2_MHz, num_channels / 1024., n_sti, n_lti, n_avg,
+             min_drift_block, max_drift_block);
 
   long start_ms = timeInMS();
   long start_ms_all = timeInMS();
@@ -163,7 +164,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   start_ms = timeInMS();
 
   if (debug >= 3) {
-    printf("Column sums: DC vicinity:");
+    fmt::print("Column sums: DC vicinity:");
     StatsUtil::printXLr(&cpu_column_sums[mid], 100, 1.0);
   }
 
@@ -173,7 +174,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   }
 
   if (debug >= 3) {
-    printf("Column sums: DC vicinity after replacement:");
+    fmt::print("Column sums: DC vicinity after replacement:");
     StatsUtil::printXLr(&cpu_column_sums[mid], 100, 1.0);
   }
 
@@ -192,8 +193,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int n_subband = SubbandNormalizer::chooseSubbandCount(num_channels);
   int nf_subband = num_channels / n_subband;
   if (nf_subband < SubbandNormalizer::kMinFreqPerSubband) {
-    printf("Warning: #subbands=%d, freq bins per subband=%d vs. %d desired\n", n_subband,
-           nf_subband, SubbandNormalizer::kMinFreqPerSubband);
+    fmt::print("Warning: #subbands={}, freq bins per subband={} vs. {} desired\n", n_subband,
+               nf_subband, SubbandNormalizer::kMinFreqPerSubband);
   }
 
   float subband_limit[SubbandNormalizer::kNominalSubbands];
@@ -205,8 +206,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   float* cpu_subband_mean = subband_.cpuSubbandMean();
   float* cpu_subband_std = subband_.cpuSubbandStd();
 
-  printf("\nFFT-size=%.0fK, n_subband=%d, Nf_subband=%d => %.0f Hz/subband:\n",
-         num_channels / 1024., n_subband, nf_subband, nf_subband * fs);
+  fmt::print("\nFFT-size={:.0f}K, n_subband={}, Nf_subband={} => {:.0f} Hz/subband:\n",
+             num_channels / 1024., n_subband, nf_subband, nf_subband * fs);
 
   subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, shear_constant, subband_work,
                             cpu_subband_mean, cpu_subband_std, subband_limit);
@@ -217,8 +218,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   float mu, std_dev;
   subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
                             &std_dev, subband_limit);
-  printf("Coarse Channel %d Single Subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
-         coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+  fmt::print("Coarse Channel {} Single Subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
+             coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
 
   double t_stats_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
@@ -234,7 +235,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     cudaMemcpy(cpu_mu_vector, gpu_mu_vector, num_channels * sizeof(float),
                cudaMemcpyDeviceToHost);
     checkCuda("cudaMemcpy-mu_vector");
-    printf("\nn_subband=%d interpolated mean values:\n", n_subband);
+    fmt::print("\nn_subband={} interpolated mean values:\n", n_subband);
     StatsUtil::printXSegmentStride(cpu_mu_vector, n_subband, nf_subband, 1.0);
   }
 
@@ -274,17 +275,17 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   StatsUtil::meanStdDev(blk_sk_no_clip, n_subband, &blk_sk_no_clip_mean, &blk_sk_no_clip_std);
 
   if (debug >= 1 && coarse_channel == 0) {
-    printf("chnl %d n_subband=%d sigma clipped mean values after scale (x1000):\n", coarse_channel,
-          n_subband);
+    fmt::print("chnl {} n_subband={} sigma clipped mean values after scale (x1000):\n", coarse_channel,
+               n_subband);
     StatsUtil::printXSegment(cpu_subband_mean, n_subband, 1000.0);
-    printf("chnl %d n_subband=%d sigma clipped std  values after scale (x1000):\n", coarse_channel,
-          n_subband);
+    fmt::print("chnl {} n_subband={} sigma clipped std  values after scale (x1000):\n", coarse_channel,
+               n_subband);
     StatsUtil::printFXSegment(cpu_subband_std, n_subband, 1000.0, f0_sb_MHz, df_sb_MHz);
   }
   
   if (debug >= 2 && coarse_channel == 0) {
-    printf("chnl %d n_subband=%d no clip std  values after scale (x1000):\n", coarse_channel,
-           n_subband);
+    fmt::print("chnl {} n_subband={} no clip std  values after scale (x1000):\n", coarse_channel,
+               n_subband);
     StatsUtil::printFXSegment(subband_std_no_clip, n_subband, 1000.0, f0_sb_MHz, df_sb_MHz);
   }
 
@@ -296,22 +297,22 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   }
 
   if (debug >= 1) {
-    printf("chnl %d n_subband=%d sigma clipped std/mean values over expected after scale (x100):\n",
-          coarse_channel, n_subband);
+    fmt::print("chnl {} n_subband={} sigma clipped std/mean values over expected after scale (x100):\n",
+               coarse_channel, n_subband);
     StatsUtil::printFXSegment(subband_std_mean_norm, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
 
-    printf("chnl %d n_subband=%d clipped SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
-          coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
+    fmt::print("chnl {} n_subband={} clipped SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+               coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
     StatsUtil::printFXSegment(blk_sk_clip, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
-    printf("chnl %d n_subband=%d no clip SK  values after scale (x100), mean=%.3f, std=%.3f:\n",
-          coarse_channel, n_subband, blk_sk_no_clip_mean, blk_sk_no_clip_std);
+    fmt::print("chnl {} n_subband={} no clip SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+               coarse_channel, n_subband, blk_sk_no_clip_mean, blk_sk_no_clip_std);
     StatsUtil::printFXSegment(blk_sk_no_clip, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
   }
 
   subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
                             &std_dev, subband_limit);
-  printf("Coarse Channel %d Multi-subband mean=%6.3f std_dev=%6.3f mean/std=%6.3f vs %6.3f\n\n",
-        coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+  fmt::print("Coarse Channel {} Multi-subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
+             coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
   
 
   float bb_z_det = 5.f;
@@ -362,19 +363,19 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     cudaMemcpy(cpu_mu_vector, gpu_mu_vector, num_channels * sizeof(float),
                cudaMemcpyDeviceToHost);
     checkCuda("cudaMemcpy-mu_vector");
-    printf("\nn_subband=%d interpolated mean values (x1000):\n", n_subband);
+    fmt::print("\nn_subband={} interpolated mean values (x1000):\n", n_subband);
     StatsUtil::printXSegmentStride(cpu_mu_vector, n_subband, nf_subband, 1000.0);
     float* cpu_std_vector = &subband_.cpuMuStdWork()[num_channels];
     cudaMemcpy(cpu_std_vector, gpu_std_vector, num_channels * sizeof(float),
                cudaMemcpyDeviceToHost);
     checkCuda("cudaMemcpy-std_vector");
-    printf("\nn_subband=%d interpolated std values (x1000):\n", n_subband);
+    fmt::print("\nn_subband={} interpolated std values (x1000):\n", n_subband);
     StatsUtil::printXSegmentStride(cpu_std_vector, n_subband, nf_subband, 1000.0);
     float* cpu_sigma_scale_vector = &subband_.cpuMuStdWork()[2 * num_channels];
     cudaMemcpy(cpu_sigma_scale_vector, gpu_sigma_scale_vector, num_channels * sizeof(float),
                cudaMemcpyDeviceToHost);
     checkCuda("cudaMemcpy-sigma_scale_vector");
-    printf("\nn_subband=%d interpolated sigma_scale values:\n", n_subband);
+    fmt::print("\nn_subband={} interpolated sigma_scale values:\n", n_subband);
     StatsUtil::printXSegmentStride(cpu_sigma_scale_vector, n_subband, nf_subband, 1.0);
   }
 
@@ -437,12 +438,12 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if ((coarse_channel == 0) && (debug >= 1)) {
-    printf("foff=%f MHz t_samp=%f sec, n_sti=%d, n_lti=%d, n_avg=%d, n_fft=%d\n",
-           metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
-    printf("drift_rate_resolution=%.3f drift_timesteps=%d diagonal_drift_rate=%.3f\n",
-           drift_rate_resolution, drift_timesteps, diagonal_drift_rate);
-    printf("max_drift=%.2f normalized_max_drift=%.2f drift_timesteps=%d window_size=%d=>%.0f Hz\n\n",
-           max_drift, normalized_max_drift, drift_timesteps, window_size, window_size * fs);
+    fmt::print("foff={} MHz t_samp={} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
+               metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
+    fmt::print("drift_rate_resolution={:.3f} drift_timesteps={} diagonal_drift_rate={:.3f}\n",
+               drift_rate_resolution, drift_timesteps, diagonal_drift_rate);
+    fmt::print("max_drift={:.2f} normalized_max_drift={:.2f} drift_timesteps={} window_size={}=>{:.0f} Hz\n\n",
+               max_drift, normalized_max_drift, drift_timesteps, window_size, window_size * fs);
   }
 
   const int n_stat_freqs = 20;
@@ -551,13 +552,13 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
           if (print_hits) {
             if (hit_count == 1) {
-              printf("\n");
+              fmt::print("\n");
             }
-            printf("hit %2d: chnl %2d sb %3d %8d %5d %10.3f MHz, %7.3f Hz/sec, SNR %5.2f dB, BlkSK "
-                   "%5.2f (%d), Nbox %d, SK %5.3f, maxmin  %5.3f\n",
-                   hit_count, coarse_channel, candidate_freq / nf_subband,
-                   candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
-                   candidate_blk_sk, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
+            fmt::print("hit {:2d}: chnl {:2d} sb {:3d} {:8d} {:5d} {:10.3f} MHz, {:7.3f} Hz/sec, SNR {:5.2f} dB, BlkSK "
+                       "{:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
+                       hit_count, coarse_channel, candidate_freq / nf_subband,
+                       candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
+                       candidate_blk_sk, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
           }
 
           if (debug >= 3) {
@@ -589,14 +590,14 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   double t_search_sec = (timeInMS() - start_ms_all) * .001;
 
   if (debug >= 1) {     
-    printf("\nElapsed times: coarse chnl %d, UM %d, fft %d, sti %d, lti %d\n", coarse_channel,
-          static_cast<int>(input.managed), num_channels, n_sti, n_lti);
-    printf("Input copy:      %.3f sec\n", t_input_copy_sec);
-    printf("Sum Columns:     %.3f sec\n", t_sumcols_sec);
-    printf("Stats:           %.3f sec\n", t_stats_sec);
-    printf("Scale input:     %.3f sec\n", t_scale_sec);
-    printf("Taylor GPU:      %.3f sec\n", t_dd_sec);
-    printf("Log Hits:        %.3f sec\n", t_log_hits_sec);
-    printf("DeDoppler total: %.3f sec\n", t_search_sec);
+    fmt::print("\nElapsed times: coarse chnl {}, UM {}, fft {}, sti {}, lti {}\n", coarse_channel,
+               static_cast<int>(input.managed), num_channels, n_sti, n_lti);
+    fmt::print("Input copy:      {:.3f} sec\n", t_input_copy_sec);
+    fmt::print("Sum Columns:     {:.3f} sec\n", t_sumcols_sec);
+    fmt::print("Stats:           {:.3f} sec\n", t_stats_sec);
+    fmt::print("Scale input:     {:.3f} sec\n", t_scale_sec);
+    fmt::print("Taylor GPU:      {:.3f} sec\n", t_dd_sec);
+    fmt::print("Log Hits:        {:.3f} sec\n", t_log_hits_sec);
+    fmt::print("DeDoppler total: {:.3f} sec\n", t_search_sec);
   }
 }

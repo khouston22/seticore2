@@ -1,7 +1,7 @@
 
 #include "boxcar.h"
-#include <cstdio>
 #include <cstring>
+#include <fmt/core.h>
 
 using namespace std;
 
@@ -23,14 +23,14 @@ int main() {
   float* nbox_path_sum;
 
 #if TEST_GPU
-  printf("Boxcar GPU Test\n");
+  fmt::print("Boxcar GPU Test\n");
   float *gpu_dd_sums_line;
   cudaMalloc(&gpu_dd_sums_line, n_freq * sizeof(float));
   cudaMallocHost(&dd_sums_line, n_freq * sizeof(float));
   checkCuda("DD_sums_line malloc");
   BoxcarWorkspace boxcar(n_freq, config);
 #else
-  printf("Boxcar CPU Test\n");
+  fmt::print("Boxcar CPU Test\n");
   dd_sums_line = static_cast<float*>(malloc(n_freq * sizeof(float)));
   p2_path_sums = static_cast<float*>(malloc(n_freq_ext * n_p2 * sizeof(float)));
   work = static_cast<float*>(malloc(2 * n_freq_ext * sizeof(float)));
@@ -38,8 +38,8 @@ int main() {
   BoxcarWorkspace boxcar(n_freq, config);
 #endif
 
-  printf("n_freq=%d, log2_max_p2=%d, Nbox_p2_max=%d, Nbox_max=%d, n_zp=%d\n", n_freq,
-         config.log2_max_p2, nbox_p2_max, nbox_max, n_zp);
+  fmt::print("n_freq={}, log2_max_p2={}, Nbox_p2_max={}, Nbox_max={}, n_zp={}\n", n_freq,
+             config.log2_max_p2, nbox_p2_max, nbox_max, n_zp);
 
   memset(dd_sums_line, 0, n_freq * sizeof(float));
 
@@ -82,7 +82,7 @@ int main() {
   for (int i_nbox = 0; i_nbox <= config.log2_max_p2; i_nbox++) {
     int start_idx = n_freq_ext * i_nbox + sig_start + n_zp;
     int nbox_p2 = 1 << i_nbox;
-    printf("\nNbox_p2=%d, sig_start=%d %d\n", nbox_p2, sig_start, n_freq - sig_start);
+    fmt::print("\nNbox_p2={}, sig_start={} {}\n", nbox_p2, sig_start, n_freq - sig_start);
     int n_pts = min(print_n_pts, n_freq_ext - (sig_start - print_ofs));
     BoxcarWorkspace::printNboxSegment(&p2_path_sums[start_idx], n_pts, print_ofs, 1.f);
   }
@@ -100,7 +100,7 @@ int main() {
 #endif
 
     int start_idx = sig_start;
-    printf("\nNbox=%d, sig_start=%d %d\n", nbox, sig_start, n_freq - sig_start);
+    fmt::print("\nNbox={}, sig_start={} {}\n", nbox, sig_start, n_freq - sig_start);
     int n_pts = min(print_n_pts, n_freq - start_idx);
     BoxcarWorkspace::printNboxSegment(&nbox_path_sum[start_idx], n_pts, print_ofs,
                                       static_cast<float>(nbox));

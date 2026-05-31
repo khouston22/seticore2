@@ -1,6 +1,6 @@
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
+#include <fmt/core.h>
 
 #include "detection.h"
 
@@ -64,56 +64,56 @@ void StatsUtil::replaceDcSpike(float* x, int dc_ofs, int mean_pts) {
 void StatsUtil::printXLr(float* x, int max_ofs, float scale) {
   for (int i_ofs = -max_ofs; i_ofs < max_ofs; i_ofs++) {
     if (i_ofs % 10 == 0) {
-      printf("\n%6d   ", i_ofs);
+      fmt::print("\n{:6d}   ", i_ofs);
     }
-    printf("%8.0f ", x[i_ofs] * scale);
+    fmt::print("{:8.0f} ", x[i_ofs] * scale);
   }
   if (max_ofs % 10 == 0) {
-    printf("\n");
+    fmt::print("\n");
   } else {
-    printf("\n\n");
+    fmt::print("\n\n");
   }
 }
 
 void StatsUtil::printXSegment(float* x, int n_pts, float scale) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
-      printf("\n%6d   ", i_ofs);
+      fmt::print("\n{:6d}   ", i_ofs);
     }
-    printf("%8.0f ", x[i_ofs] * scale);
+    fmt::print("{:8.0f} ", x[i_ofs] * scale);
   }
   if (n_pts % 10 == 0) {
-    printf("\n");
+    fmt::print("\n");
   } else {
-    printf("\n\n");
+    fmt::print("\n\n");
   }
 }
 
 void StatsUtil::printXSegmentStride(float* x, int n_pts, int stride, float scale) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
-      printf("\n%6d   ", i_ofs * stride);
+      fmt::print("\n{:6d}   ", i_ofs * stride);
     }
-    printf("%8.0f ", x[i_ofs * stride] * scale);
+    fmt::print("{:8.0f} ", x[i_ofs * stride] * scale);
   }
   if (n_pts % 10 == 0) {
-    printf("\n");
+    fmt::print("\n");
   } else {
-    printf("\n\n");
+    fmt::print("\n\n");
   }
 }
 
 void StatsUtil::printFXSegment(float* x, int n_pts, float scale, float f0, float df) {
   for (int i_ofs = 0; i_ofs < n_pts; i_ofs++) {
     if (i_ofs % 10 == 0) {
-      printf("\n%6d %8.2f  ", i_ofs, f0 + i_ofs * df);
+      fmt::print("\n{:6d} {:8.2f}  ", i_ofs, f0 + i_ofs * df);
     }
-    printf("%8.0f ", x[i_ofs] * scale);
+    fmt::print("{:8.0f} ", x[i_ofs] * scale);
   }
   if (n_pts % 10 == 0) {
-    printf("\n");
+    fmt::print("\n");
   } else {
-    printf("\n\n");
+    fmt::print("\n\n");
   }
 }
 
@@ -123,15 +123,15 @@ void StatsUtil::printXSubmatrix(float* x, int n_row_x, int n_col_x, int start_ro
     int i_col_shift = static_cast<int>(round(i_row * col_shift_per_row));
     for (int i_col = 0; i_col < n_col; i_col++) {
       if (i_col % 10 == 0) {
-        printf("\n%6d %6d   ", i_row, start_col + i_col + i_col_shift);
+        fmt::print("\n{:6d} {:6d}   ", i_row, start_col + i_col + i_col_shift);
       }
-      printf("%8.0f ", x[i_row * n_col_x + start_col + i_col + i_col_shift] * scale);
+      fmt::print("{:8.0f} ", x[i_row * n_col_x + start_col + i_col + i_col_shift] * scale);
     }
     if (n_col > 10) {
-      printf("\n");
+      fmt::print("\n");
     }
   }
-  printf("\n\n");
+  fmt::print("\n\n");
 }
 
 int SubbandNormalizer::chooseSubbandCount(int num_channels) {
@@ -247,57 +247,57 @@ void StampAnalyzer::printHitStampDebug(int coarse_channel, int hit_count, int ca
                                        int hit_end_max, int stamp_width, int stamp_rows,
                                        float drift_bins_per_line, int n_stat_freqs,
                                        const LineStats* lstats) const {
-  printf("       stamp %d x %d: ifreq %d dbins %d, src start %d stamp %d - %d, Nbox %d, "
-         "%d - %d\n\n",
-         stamp_width, stamp_rows, candidate_freq, drift_bins, stamp_start_column, hit_start_mid,
-         hit_end_mid, hit_nbox, hit_start_min, hit_end_max);
+  fmt::print("       stamp {} x {}: ifreq {} dbins {}, src start {} stamp {} - {}, Nbox {}, "
+             "{} - {}\n\n",
+             stamp_width, stamp_rows, candidate_freq, drift_bins, stamp_start_column,
+             hit_start_mid, hit_end_mid, hit_nbox, hit_start_min, hit_end_max);
   int n_row = min(16, num_timesteps_);
   int n_col = 10;
   int start_col = hit_start_mid - 2;
-  printf("Shifted stamp submatrix for coarse channel %d, hit %d, Nbox %d, bins/line "
-         "%.1f, mid col %d (x10):\n",
-         coarse_channel, hit_count, hit_nbox, drift_bins_per_line, hit_start_mid);
+  fmt::print("Shifted stamp submatrix for coarse channel {}, hit {}, Nbox {}, bins/line "
+             "{:.1f}, mid col {} (x10):\n",
+             coarse_channel, hit_count, hit_nbox, drift_bins_per_line, hit_start_mid);
   for (int i_row = 0; i_row < n_row; i_row++) {
-    printf("%.0f ", hit_start_mid + drift_bins_per_line * i_row);
+    fmt::print("{:.0f} ", hit_start_mid + drift_bins_per_line * i_row);
   }
-  printf("\n");
+  fmt::print("\n");
   StatsUtil::printXSubmatrix(cpu_stamp_, num_timesteps_, stamp_width, 0, n_row, start_col, n_col,
                              drift_bins_per_line, 10.f);
-  printf("SK =           ");
+  fmt::print("SK =           ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.3f", lstats[i].sk);
+    fmt::print("{:9.3f}", lstats[i].sk);
   }
-  printf("\n");
-  printf("SNR dB =       ");
+  fmt::print("\n");
+  fmt::print("SNR dB =       ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.1f", 10.f * log10(lstats[i].snr));
+    fmt::print("{:9.1f}", 10.f * log10(lstats[i].snr));
   }
-  printf("\n");
-  printf("P_mean =       ");
+  fmt::print("\n");
+  fmt::print("P_mean =       ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.2f", lstats[i].p_mean);
+    fmt::print("{:9.2f}", lstats[i].p_mean);
   }
-  printf("\n");
-  printf("P_std =        ");
+  fmt::print("\n");
+  fmt::print("P_std =        ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.2f", lstats[i].p_std);
+    fmt::print("{:9.2f}", lstats[i].p_std);
   }
-  printf("\n");
-  printf("P_max =        ");
+  fmt::print("\n");
+  fmt::print("P_max =        ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.2f", lstats[i].p_max);
+    fmt::print("{:9.2f}", lstats[i].p_max);
   }
-  printf("\n");
-  printf("P_min =        ");
+  fmt::print("\n");
+  fmt::print("P_min =        ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.2f", lstats[i].p_min);
+    fmt::print("{:9.2f}", lstats[i].p_min);
   }
-  printf("\n");
-  printf("Max/Min =      ");
+  fmt::print("\n");
+  fmt::print("Max/Min =      ");
   for (int i = 0; i < n_stat_freqs; i++) {
-    printf("%9.2f", lstats[i].max_min_ratio);
+    fmt::print("{:9.2f}", lstats[i].max_min_ratio);
   }
-  printf("\n\n");
+  fmt::print("\n\n");
 }
 
 StampAnalyzer::StampAnalyzer(int stamp_n_freq_max, int num_timesteps)
