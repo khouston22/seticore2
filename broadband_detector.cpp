@@ -27,22 +27,25 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     }
   }
 
-  for (int i_subband = n_subband_dilation; i_subband < n_subband; i_subband++) {
-    if ((bb_subband_detected_[i_subband] > 0.f) &&
-        (bb_subband_detected_[i_subband - 1] == 0.f)) {
-      for (int i_edge = 1; i_edge <= n_subband_dilation; i_edge++) {
-        bb_subband_detected_[i_subband - i_edge] = 1.0f;
+  if (n_subband_dilation>0) {
+    for (int i_subband = n_subband_dilation; i_subband < n_subband; i_subband++) {
+      if ((bb_subband_detected_[i_subband] > 0.f) &&
+          (bb_subband_detected_[i_subband - 1] == 0.f)) {
+        for (int i_edge = 1; i_edge <= n_subband_dilation; i_edge++) {
+          bb_subband_detected_[i_subband - i_edge] = 1.0f;
+        }
+      }
+    }
+    for (int i_subband = n_subband - n_subband_dilation - 1; i_subband >= 0; i_subband--) {
+      if ((bb_subband_detected_[i_subband] > 0.f) &&
+          (bb_subband_detected_[i_subband + 1] == 0.f)) {
+        for (int i_edge = 1; i_edge <= n_subband_dilation; i_edge++) {
+          bb_subband_detected_[i_subband + i_edge] = 1.0f;
+        }
       }
     }
   }
-  for (int i_subband = n_subband - n_subband_dilation - 1; i_subband >= 0; i_subband--) {
-    if ((bb_subband_detected_[i_subband] > 0.f) &&
-        (bb_subband_detected_[i_subband + 1] == 0.f)) {
-      for (int i_edge = 1; i_edge <= n_subband_dilation; i_edge++) {
-        bb_subband_detected_[i_subband + i_edge] = 1.0f;
-      }
-    }
-  }
+
   int bb_subband_det_count = 0;
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
     if (bb_subband_detected_[i_subband] > 0.f) {
@@ -90,6 +93,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
       in_bb_cluster = false;
     }
   }
+  
   n_bb_det_ = bb_det_idx + 1;
 
   for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
@@ -105,11 +109,13 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     bb_det_[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk[i_bb_sb1], n_bb_sb);
   }
 
-  for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
-    printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, "
-           "Peak BlkSK %5.2f, SNR %5.2f dB\n",
-           i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
-           bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
-           bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
+  if (debug >= 1) {
+    for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
+      printf("BB det %3d: subband %3d - %3d, %8.2f - %8.2f MHz, center %8.2f MHz, BW %5.0f KHz, "
+            "Peak BlkSK %5.2f, SNR %5.2f dB\n",
+            i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
+            bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
+            bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
+    }
   }
 }
