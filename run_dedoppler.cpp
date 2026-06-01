@@ -16,8 +16,8 @@ using namespace std;
 
   input_filename is assumed to be in the .h5 format
   output_filename is where a .dat file will be written with results
-  max_drift is the maximum drift we are looking for, in Hz/sec
-  min_drift is the minimum drift we are looking for.
+  max_drift is the maximum absolute value of drift we are looking for, in Hz/sec
+  min_drift is the minimum absolute value of drift we are looking for.
     If it's set to zero, we report zero-drift signals.
   snr_threshold is the minimum SNR we require to report a signal
 

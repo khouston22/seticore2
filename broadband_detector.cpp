@@ -56,10 +56,10 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
                coarse_channel, n_subband);
     StatsUtil::printFXSegment(subband_std_mean_norm, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
 
-    fmt::print("chnl {} n_subband={} clipped SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+    fmt::print("chnl {} n_subband={} clipped BlkSK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
                coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
     StatsUtil::printFXSegment(blk_sk_clip_, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
-    fmt::print("chnl {} n_subband={} no clip SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+    fmt::print("chnl {} n_subband={} no clip BlkSK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
                coarse_channel, n_subband, blk_sk_no_clip_mean, blk_sk_no_clip_std);
     StatsUtil::printFXSegment(blk_sk_no_clip_, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
   }
