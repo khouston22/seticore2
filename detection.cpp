@@ -183,16 +183,16 @@ void SubbandNormalizer::calcSubbandMeanStd(const float* spectrum, int num_channe
   }
 }
 
-// Three-pass sigma-clipped subband mean/std (shear_constant limits)
+// Simplified three-pass sigma-clipped subband mean/std (limited at mean + sigma_clip_high_limit*std)
 void SubbandNormalizer::multipassMeanStd(const float* spectrum, int num_channels, int n_subband,
-                                         float shear_constant, float* work, float* subband_mean,
+                                         float sigma_clip_high_limit, float* work, float* subband_mean,
                                          float* subband_std, float* subband_limit) const {
   bool do_limit = false;
   calcSubbandMeanStd(spectrum, num_channels, n_subband, do_limit, subband_limit, work,
                      subband_mean, subband_std);
 
   for (int i_band = 0; i_band < n_subband; i_band++) {
-    subband_limit[i_band] = subband_mean[i_band] + shear_constant * subband_std[i_band];
+    subband_limit[i_band] = subband_mean[i_band] + sigma_clip_high_limit * subband_std[i_band];
   }
 
   do_limit = true;
@@ -200,7 +200,7 @@ void SubbandNormalizer::multipassMeanStd(const float* spectrum, int num_channels
                      subband_mean, subband_std);
 
   for (int i_band = 0; i_band < n_subband; i_band++) {
-    subband_limit[i_band] = subband_mean[i_band] + shear_constant * subband_std[i_band];
+    subband_limit[i_band] = subband_mean[i_band] + sigma_clip_high_limit * subband_std[i_band];
   }
 
   calcSubbandMeanStd(spectrum, num_channels, n_subband, do_limit, subband_limit, work,

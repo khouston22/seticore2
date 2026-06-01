@@ -49,7 +49,7 @@ class SubbandNormalizer {
                           float* subband_limit, float* work, float* subband_mean,
                           float* subband_std) const;
   void multipassMeanStd(const float* spectrum, int num_channels, int n_subband,
-                        float shear_constant, float* work, float* subband_mean,
+                        float sigma_clip_high_limit, float* work, float* subband_mean,
                         float* subband_std, float* subband_limit) const;
 
   void interpolateToFreqGpu(float* gpu_out, int n_freq, const float* gpu_subband, int n_subband);

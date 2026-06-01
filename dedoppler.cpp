@@ -204,7 +204,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   }
 
   float subband_limit[SubbandNormalizer::kNominalSubbands];
-  float shear_constant = 3.0f;
+  float sigma_clip_high_limit = 3.0f;
   float* subband_work = static_cast<float*>(malloc(num_channels * sizeof(float)));
   float f0_sb_MHz = metadata.fch1 + (coarse_channel * num_channels + nf_subband / 2) * metadata.foff;
   float df_sb_MHz = nf_subband * metadata.foff;
@@ -216,7 +216,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
              num_channels / 1024., n_subband, nf_subband, nf_subband * fs);
 
   // calculate & save original subband mean before normalization
-  subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, shear_constant, subband_work,
+  subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, sigma_clip_high_limit, subband_work,
                             cpu_subband_mean, cpu_subband_std, subband_limit);
 
   float subband_mean0[SubbandNormalizer::kNominalSubbands];
@@ -225,10 +225,12 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   // check on overall mu/std ratio if single subband were used
 
   float mu, std_dev;
-  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
+  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, sigma_clip_high_limit, subband_work, &mu,
                             &std_dev, subband_limit);
-  fmt::print("Coarse Channel {} Single Subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n",
+  if (debug>=1) {
+    fmt::print("Coarse Channel {} Single Subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n",
              coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+  }
 
   double t_stats_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
@@ -265,14 +267,16 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   // check on overall mu/std ratio after normalization
 
-  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
+  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, sigma_clip_high_limit, subband_work, &mu,
                             &std_dev, subband_limit);
-  fmt::print("Coarse Channel {} Multi-subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
-             coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+  if (debug>=1) {
+    fmt::print("Coarse Channel {} Multi-subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
+              coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+  }
 
   // Calculate mean & std for each subband with sigma clipping after first pass normalization
 
-  subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, shear_constant, subband_work,
+  subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, sigma_clip_high_limit, subband_work,
                             cpu_subband_mean, cpu_subband_std, subband_limit);
 
   // Calculate mean & std for each subband without sigma clipping       
@@ -408,6 +412,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   // Find top path SNRs and declare hits
 
+  // window_size is minimum spacing in freq bins between hits
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if ((coarse_channel == 0) && (debug >= 1)) {
@@ -577,8 +582,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     fmt::print("Input copy:      {:.3f} sec\n", t_input_copy_sec);
     fmt::print("Sum Columns:     {:.3f} sec\n", t_sumcols_sec);
     fmt::print("Stats:           {:.3f} sec\n", t_stats_sec);
-    fmt::print("Scale input:     {:.3f} sec\n", t_scale_sec);
-    fmt::print("Taylor GPU:      {:.3f} sec\n", t_dd_sec);
+    fmt::print("SG norm+BB det:  {:.3f} sec\n", t_scale_sec);
+    fmt::print("Taylor+Box GPU:  {:.3f} sec\n", t_dd_sec);
     fmt::print("Log Hits:        {:.3f} sec\n", t_log_hits_sec);
     fmt::print("DeDoppler total: {:.3f} sec\n", t_search_sec);
   }
