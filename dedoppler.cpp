@@ -215,20 +215,25 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   fmt::print("\nFFT-size={:.0f}K, n_subband={}, Nf_subband={} => {:.0f} Hz/subband:\n",
              num_channels / 1024., n_subband, nf_subband, nf_subband * fs);
 
+  // calculate & save original subband mean before normalization
   subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, shear_constant, subband_work,
                             cpu_subband_mean, cpu_subband_std, subband_limit);
 
   float subband_mean0[SubbandNormalizer::kNominalSubbands];
   memcpy(subband_mean0, cpu_subband_mean, n_subband * sizeof(float));
 
+  // check on overall mu/std ratio if single subband were used
+
   float mu, std_dev;
   subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
                             &std_dev, subband_limit);
-  fmt::print("Coarse Channel {} Single Subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
+  fmt::print("Coarse Channel {} Single Subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n",
              coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
 
   double t_stats_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
+
+  // interpolate mean from n_subband to num_channels within GPU
 
   cudaMemcpy(subband_.gpuSubbandMean(), cpu_subband_mean, n_subband * sizeof(float),
              cudaMemcpyHostToDevice);
@@ -258,86 +263,35 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
              cudaMemcpyDeviceToHost);
   checkCuda("sumColumns d->h memcpy");
 
+  // check on overall mu/std ratio after normalization
+
+  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
+                            &std_dev, subband_limit);
+  fmt::print("Coarse Channel {} Multi-subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
+             coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
+
+  // Calculate mean & std for each subband with sigma clipping after first pass normalization
+
   subband_.multipassMeanStd(cpu_column_sums, num_channels, n_subband, shear_constant, subband_work,
                             cpu_subband_mean, cpu_subband_std, subband_limit);
+
+  // Calculate mean & std for each subband without sigma clipping       
 
   float subband_mean_no_clip[SubbandNormalizer::kNominalSubbands];
   float subband_std_no_clip[SubbandNormalizer::kNominalSubbands];
   subband_.calcSubbandMeanStd(cpu_column_sums, num_channels, n_subband, false, subband_limit,
                               subband_work, subband_mean_no_clip, subband_std_no_clip);
 
-  // Block SK statistics (clipped vs no-clip)
-
-  float blk_sk_clip[SubbandNormalizer::kNominalSubbands];
-  float blk_sk_no_clip[SubbandNormalizer::kNominalSubbands];
-  float blk_sk_clip_mean, blk_sk_clip_std;
-  float blk_sk_no_clip_mean, blk_sk_no_clip_std;
-
-  for (int i_subband = 0; i_subband < n_subband; i_subband++) {
-    blk_sk_clip[i_subband] =
-        (2 * nf_subband * n_avg + 1.) / nf_subband *
-        pow(cpu_subband_std[i_subband] / cpu_subband_mean[i_subband], 2.0);
-    blk_sk_no_clip[i_subband] =
-        (2 * nf_subband * n_avg + 1.) / nf_subband *
-        pow(subband_std_no_clip[i_subband] / subband_mean_no_clip[i_subband], 2.0);
-  }
-  StatsUtil::meanStdDev(blk_sk_clip, n_subband, &blk_sk_clip_mean, &blk_sk_clip_std);
-  StatsUtil::meanStdDev(blk_sk_no_clip, n_subband, &blk_sk_no_clip_mean, &blk_sk_no_clip_std);
-
-  if (debug >= 1 && coarse_channel == 0) {
-    fmt::print("chnl {} n_subband={} sigma clipped mean values after scale (x1000):\n", coarse_channel,
-               n_subband);
-    StatsUtil::printXSegment(cpu_subband_mean, n_subband, 1000.0);
-    fmt::print("chnl {} n_subband={} sigma clipped std  values after scale (x1000):\n", coarse_channel,
-               n_subband);
-    StatsUtil::printFXSegment(cpu_subband_std, n_subband, 1000.0, f0_sb_MHz, df_sb_MHz);
-  }
-  
-  if (debug >= 2 && coarse_channel == 0) {
-    fmt::print("chnl {} n_subband={} no clip std  values after scale (x1000):\n", coarse_channel,
-               n_subband);
-    StatsUtil::printFXSegment(subband_std_no_clip, n_subband, 1000.0, f0_sb_MHz, df_sb_MHz);
-  }
-
-  float subband_std_mean_nominal = 1.0f / sqrt(2 * n_avg);
-  float subband_std_mean_norm[SubbandNormalizer::kNominalSubbands];
-  for (int i_subband = 0; i_subband < n_subband; i_subband++) {
-    subband_std_mean_norm[i_subband] =
-        cpu_subband_std[i_subband] / cpu_subband_mean[i_subband] / subband_std_mean_nominal;
-  }
-
-  if (debug >= 1) {
-    fmt::print("chnl {} n_subband={} sigma clipped std/mean values over expected after scale (x100):\n",
-               coarse_channel, n_subband);
-    StatsUtil::printFXSegment(subband_std_mean_norm, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
-
-    fmt::print("chnl {} n_subband={} clipped SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
-               coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
-    StatsUtil::printFXSegment(blk_sk_clip, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
-    fmt::print("chnl {} n_subband={} no clip SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
-               coarse_channel, n_subband, blk_sk_no_clip_mean, blk_sk_no_clip_std);
-    StatsUtil::printFXSegment(blk_sk_no_clip, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
-  }
-
-  subband_.multipassMeanStd(cpu_column_sums, num_channels, 1, shear_constant, subband_work, &mu,
-                            &std_dev, subband_limit);
-  fmt::print("Coarse Channel {} Multi-subband mean={:6.3f} std_dev={:6.3f} mean/std={:6.3f} vs {:6.3f}\n\n",
-             coarse_channel, mu, std_dev, mu / std_dev, sqrt(2 * n_avg));
-  
-
   // Broadband detection
 
-  float bb_z_det = 5.f;
-  float bb_det_threshold = 1.02f / sqrt(2 * n_avg) * (1.f + bb_z_det / sqrt(nf_subband));
-  float bb_det_threshold_sk = pow(bb_det_threshold, 2.0) * 2 * n_avg;
-  float* subband_std_bb_det = subband_std_no_clip;
-  float* blk_sk = blk_sk_no_clip;
-
-  int n_subband_dilation = 3;
   BroadbandDetector bb_detector;
-  bb_detector.BroadbandDetect(n_subband, nf_subband, n_subband_dilation, debug, bb_det_threshold, bb_det_threshold_sk,
-                              f0_sb_MHz, df_sb_MHz, subband_std_bb_det, blk_sk, cpu_column_sums,
-                              cpu_subband_mean, cpu_subband_std);
+  int n_subband_dilation = 3;
+
+  bb_detector.BroadbandDetect(n_subband, nf_subband, n_subband_dilation, coarse_channel, debug, n_avg,
+                              f0_sb_MHz, df_sb_MHz, cpu_column_sums, cpu_subband_mean,
+                              cpu_subband_std, subband_mean_no_clip, subband_std_no_clip);
+
+  // Optionally write out BB detections to dat file
 
   if (write_BB_hits_to_dat) {
     for (int i_bb_det = 0; i_bb_det < bb_detector.nDetections(); i_bb_det++) {
@@ -349,7 +303,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     }
   }
 
-  // Revise subband std inside BB segments; build mu/std/sigma_scale
+  // Revise subband std inside BB segments; revise mu/std/sigma_scale
 
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
     if (bb_detector.subbandDetected()[i_subband] > 0.f) {
@@ -403,6 +357,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_p2_max());
 
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
+
     const float* taylor_sums = optimizedTaylorTree(input.d_sg_data, buffer1, buffer2,
                                                    rounded_num_timesteps, num_channels, drift_block);
 
@@ -451,21 +406,23 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   double t_dd_sec = (timeInMS() - start_ms) * .001;
   start_ms = timeInMS();
 
+  // Find top path SNRs and declare hits
+
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if ((coarse_channel == 0) && (debug >= 1)) {
-    fmt::print("foff={} MHz t_samp={} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
+    fmt::print("\nfoff={} MHz t_samp={} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
                metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
     fmt::print("drift_rate_resolution={:.3f} drift_timesteps={} diagonal_drift_rate={:.3f}\n",
                drift_rate_resolution, drift_timesteps, diagonal_drift_rate);
-    fmt::print("max_drift={:.2f} normalized_max_drift={:.2f} drift_timesteps={} window_size={}=>{:.0f} Hz\n\n",
+    fmt::print("max_drift={:.2f} normalized_max_drift={:.2f} drift_timesteps={} window_size={}=>{:.0f} Hz\n",
                max_drift, normalized_max_drift, drift_timesteps, window_size, window_size * fs);
   }
 
   const int n_stat_freqs = 20;  // within stamp, calculate SK and other stats on this many adjacent start freqs
   LineStats lstats[n_stat_freqs];
 
-  // Scan top path SNRs for drift hits
+  // Scan top path SNRs for drift hits with minimum separation of at least window_size
 
   for (int i = 0; i * window_size < num_channels; ++i) {
     int candidate_freq = -1;
@@ -507,7 +464,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
       int i_subband = candidate_freq / nf_subband;
       int candidate_within_bb_segment = bb_detector.subbandDetected()[i_subband];
-      double candidate_blk_sk = blk_sk[i_subband];
+      double candidate_blk_sk = bb_detector.blockSk()[i_subband];
 
       float power = 0.f;
       float drift_tol = .05f;
@@ -532,7 +489,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
       if (found_hit) {
         
-        // extract stamp submatrix in potential hit vicinity and calculate SK (spectral kurtosis)
+        // extract stamp from GPU (spectrogram submatrix in vicinity of candidate hit) and calculate SK (spectral kurtosis)
 
         // ensure stamp starts on 128 byte boundary
         int stamp_boundary_quant = 128 / static_cast<int>(sizeof(float));

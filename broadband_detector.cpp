@@ -7,16 +7,73 @@
 
 // Detect broadband RFI from elevated subband std; dilate, cluster, and score segments
 void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_subband_dilation,
-                                        int debug, float bb_det_threshold, float bb_det_threshold_sk,
-                                        float f0_sb_MHz, float df_sb_MHz,
-                                        const float* subband_std_bb_det, const float* blk_sk,
-                                        const float* cpu_column_sums, const float* cpu_subband_mean,
-                                        const float* cpu_subband_std) {
+                                        int coarse_channel, int debug, float n_avg,
+                                        float f0_sb_MHz, float df_sb_MHz, const float* cpu_column_sums,
+                                        const float* cpu_subband_mean, const float* cpu_subband_std,
+                                        const float* subband_mean_no_clip,
+                                        const float* subband_std_no_clip) {
+  // Block SK statistics and detection thresholds
+  float blk_sk_clip_mean, blk_sk_clip_std;
+  float blk_sk_no_clip_mean, blk_sk_no_clip_std;
+
+  for (int i_subband = 0; i_subband < n_subband; i_subband++) {
+    blk_sk_clip_[i_subband] =
+        (2 * nf_subband * n_avg + 1.) / nf_subband *
+        pow(cpu_subband_std[i_subband] / cpu_subband_mean[i_subband], 2.0);
+    blk_sk_no_clip_[i_subband] =
+        (2 * nf_subband * n_avg + 1.) / nf_subband *
+        pow(subband_std_no_clip[i_subband] / subband_mean_no_clip[i_subband], 2.0);
+  }
+  StatsUtil::meanStdDev(blk_sk_clip_, n_subband, &blk_sk_clip_mean, &blk_sk_clip_std);
+  StatsUtil::meanStdDev(blk_sk_no_clip_, n_subband, &blk_sk_no_clip_mean, &blk_sk_no_clip_std);
+
+  if (debug >= 1 && coarse_channel == 0) {
+    fmt::print("chnl {} n_subband={} sigma clipped mean values after scale (x1000):\n", coarse_channel,
+               n_subband);
+    StatsUtil::printXSegment(const_cast<float*>(cpu_subband_mean), n_subband, 1000.0);
+    fmt::print("chnl {} n_subband={} sigma clipped std  values after scale (x1000):\n", coarse_channel,
+               n_subband);
+    StatsUtil::printFXSegment(const_cast<float*>(cpu_subband_std), n_subband, 1000.0, f0_sb_MHz,
+                              df_sb_MHz);
+  }
+
+  if (debug >= 2 && coarse_channel == 0) {
+    fmt::print("chnl {} n_subband={} no clip std  values after scale (x1000):\n", coarse_channel,
+               n_subband);
+    StatsUtil::printFXSegment(const_cast<float*>(subband_std_no_clip), n_subband, 1000.0, f0_sb_MHz,
+                              df_sb_MHz);
+  }
+
+  float subband_std_mean_nominal = 1.0f / sqrt(2 * n_avg);
+  float subband_std_mean_norm[SubbandNormalizer::kNominalSubbands];
+  for (int i_subband = 0; i_subband < n_subband; i_subband++) {
+    subband_std_mean_norm[i_subband] =
+        cpu_subband_std[i_subband] / cpu_subband_mean[i_subband] / subband_std_mean_nominal;
+  }
+
+  if (debug >= 1) {
+    fmt::print("chnl {} n_subband={} sigma clipped std/mean values over expected after scale (x100):\n",
+               coarse_channel, n_subband);
+    StatsUtil::printFXSegment(subband_std_mean_norm, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
+
+    fmt::print("chnl {} n_subband={} clipped SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+               coarse_channel, n_subband, blk_sk_clip_mean, blk_sk_clip_std);
+    StatsUtil::printFXSegment(blk_sk_clip_, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
+    fmt::print("chnl {} n_subband={} no clip SK  values after scale (x100), mean={:.3f}, std={:.3f}:\n",
+               coarse_channel, n_subband, blk_sk_no_clip_mean, blk_sk_no_clip_std);
+    StatsUtil::printFXSegment(blk_sk_no_clip_, n_subband, 100.0, f0_sb_MHz, df_sb_MHz);
+  }
+
+  float bb_z_det = 5.f;
+  float bb_det_threshold = 1.02f / sqrt(2 * n_avg) * (1.f + bb_z_det / sqrt(nf_subband));
+  float bb_det_threshold_sk = pow(bb_det_threshold, 2.0) * 2 * n_avg;
+
   int bb_subband_prelim_det_count = 0;
 
   // Threshold subband std for preliminary detections
+  // Use float value as flag for simplify printout in debug
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
-    if (subband_std_bb_det[i_subband] > bb_det_threshold) {
+    if (subband_std_no_clip[i_subband] > bb_det_threshold) {
       bb_subband_detected_[i_subband] = 1.0f;
       bb_subband_prelim_det_count++;
     } else {
@@ -116,7 +173,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
 
     int i_bb_sb1 = bb_det_[i_bb_det].sb1;
     int n_bb_sb = bb_det_[i_bb_det].sb2 - bb_det_[i_bb_det].sb1 + 1;
-    bb_det_[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk[i_bb_sb1], n_bb_sb);
+    bb_det_[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk_no_clip_[i_bb_sb1], n_bb_sb);
   }
 
   // Debug summary of each detection
@@ -128,5 +185,6 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
                  bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
                  bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
     }
+    fmt::print("\n");
   }
 }
