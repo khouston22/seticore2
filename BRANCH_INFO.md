@@ -61,6 +61,20 @@ Screening greatly reduces hits in capture files while having small effect on tes
 
 ## sc6
 
+Various enhancements:
+
+* Add hit_screen and BB_to_dat cmd line options
+* Calculation of Spectral Kurtosis (SK)
+* Add SK, BlkSK, Max/Min stats to dat file for each narrowband hit 
+* Added peak BlkSK to dat output for BB detections
+* Added SK as a parameter for hit_screen
+
+## sc7
+
+Major refactor of all DeDoppler code.  Outputs are unchanged from sc6.
+
+## sc8
+
 Experimental branch: additional changes TBD.
 
 
