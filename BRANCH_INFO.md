@@ -69,7 +69,7 @@ Various enhancements:
 * Added peak BlkSK to dat output for BB detections
 * Added SK as a parameter for hit_screen
 
-## sc7
+## sc7 = master
 
 Major refactor of all DeDoppler code.  Outputs are unchanged from sc6.
 
