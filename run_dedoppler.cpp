@@ -35,7 +35,7 @@ void runDedoppler(const string& input_filename, const string& output_filename,
 
   Dedopplerer dedopplerer(file->num_timesteps, file->coarse_channel_size, file->foff,
                           file->tsamp, file->has_dc_spike);
-  dedopplerer.print_hits = true;
+  dedopplerer.print_hits = (debug>0);
   dedopplerer.debug = debug;
   #if MANAGED_INPUT
   FilterbankBuffer buffer(roundUpToPowerOfTwo(file->num_timesteps),
