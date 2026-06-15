@@ -4,7 +4,7 @@
 
 // Update per-frequency top path SNR for one drift/nbox step
 __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_timesteps, int num_freqs,
-                                      int path_offset, int drift_block, float mu,
+                                      int path_offset, int drift_block, float* mu,
                                       float* sigma_scale, int nbox, float* top_path_snrs,
                                       int* top_drift_blocks, int* top_path_offsets,
                                       int* top_path_nbox) {
@@ -27,7 +27,7 @@ __global__ void findTopPathSNRs_1step(const float* path_sums_line, int num_times
     }
   }
 
-  float path_snr = (path_sums_line[freq] * path_scale - mu) * sigma_scale[freq];
+  float path_snr = (path_sums_line[freq] * path_scale - mu[freq]) * sigma_scale[freq];
   if (path_snr > top_path_snrs[freq]) {
     top_path_snrs[freq] = path_snr;
     top_drift_blocks[freq] = drift_block;
@@ -78,7 +78,7 @@ void launchSumColumns(const float* input, float* sums, int num_timesteps, int nu
 
 // Launch findTopPathSNRs_1step kernel
 void launchFindTopPathSNRs(const float* path_sums_line, int num_timesteps, int num_freqs,
-                           int path_offset, int drift_block, float mu, float* sigma_scale,
+                           int path_offset, int drift_block, float* mu, float* sigma_scale,
                            int nbox, float* top_path_snrs, int* top_drift_blocks,
                            int* top_path_offsets, int* top_path_nbox) {
   int grid_size = (num_freqs + CUDA_MAX_THREADS - 1) / CUDA_MAX_THREADS;

@@ -7,7 +7,7 @@
 using namespace std;
 
 struct BoxcarConfig {
-  static constexpr int kDefaultLog2MaxP2 = 6;
+  static constexpr int kDefaultLog2MaxP2 = 7;
 
   int log2_max_p2 = kDefaultLog2MaxP2;
 
@@ -38,8 +38,8 @@ class BoxcarWorkspace {
   void computeP2SumsGpu(const float* dd_sums_line, int log2_max_p2_runtime, int n_zp);
   void computeSumGpu(int nbox, int log2_max_p2_runtime, int n_zp);
 
-  static vector<int> buildNboxList(int drift_block, int max_nbox_bw, int nbox_p2_max);
-  static void printNboxList(const vector<int>& nbox_list, int drift_block);
+  static vector<int> buildNboxList(int drift_block, int max_nbox_bw, int nbox_max);
+  static void printNboxList(const vector<int>& nbox_list, int drift_block, int nbox_max);
   static void printNboxSegment(const float* x, int n_pts, int start_offset, float scale);
 
   BoxcarWorkspace(const BoxcarWorkspace&) = delete;

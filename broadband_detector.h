@@ -10,7 +10,8 @@ struct BBdet {
   float fctr_MHz = 0.f;
   float bw_MHz = 0.f;
   float snr = 0.f;
-  float peak_blk_sk = 0.f;
+  float peak_blockSk = 0.f;
+  float peak_blockSkClip = 0.f;
 };
 
 class BroadbandDetector {
@@ -23,6 +24,7 @@ class BroadbandDetector {
 
   const float* subbandDetected() const { return bb_subband_detected_; }
   const float* blockSk() const { return blk_sk_no_clip_; }
+  const float* blockSkClip() const { return blk_sk_clip_; }
   int nDetections() const { return n_bb_det_; }
   const BBdet* detections() const { return bb_det_; }
 

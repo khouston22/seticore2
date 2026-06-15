@@ -302,7 +302,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       const BBdet& det = bb_detector.detections()[i_bb_det];
       int freq_idx = det.sb1 * nf_subband;
       DedopplerHit hit(metadata, freq_idx, det.fctr_MHz, det.f1_MHz, det.f2_MHz, 0, 0., det.snr, 0,
-                       coarse_channel, num_timesteps, 0., det.peak_blk_sk, -1., -1.);
+                       coarse_channel, num_timesteps, 0., det.peak_blockSkClip, -1., -1.);
       output->push_back(hit);
     }
   }
@@ -358,7 +358,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   int n_zp = config_.boxcar.n_zp();
   int max_nbox_bw = 1;
-  max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_p2_max());
+  // int max_nbox_bw = 140;
+  max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_max());
 
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
 
@@ -366,31 +367,36 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
                                                    rounded_num_timesteps, num_channels, drift_block);
 
     vector<int> nbox_list =
-        BoxcarWorkspace::buildNboxList(drift_block, max_nbox_bw, config_.boxcar.nbox_p2_max());
+        BoxcarWorkspace::buildNboxList(drift_block, max_nbox_bw, config_.boxcar.nbox_max());
     int nbox_max = nbox_list.back();
     int log2_max_p2 = static_cast<int>(floor(log2(nbox_max)));
 
-    if ((coarse_channel == 0) && (drift_block == 0)) {
-      BoxcarWorkspace::printNboxList(nbox_list, drift_block);
+    if ((coarse_channel == 0) && (debug>=2)) {
+      BoxcarWorkspace::printNboxList(nbox_list, drift_block, config_.boxcar.nbox_max());
     }
 
-    for (int nbox : nbox_list) {
-      float nbox_gain = pow(nbox, .40);
-      subband_.computeSigmaScaleGpu(gpu_sigma_scale_vector, gpu_std_vector, nbox_gain, num_channels);
-
       for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
-        const float* gpu_nbox_path_sum_line;
+      const float* gpu_nbox_path_sum_line;
+
+      for (int nbox : nbox_list) {
+        float nbox_gain = pow(nbox, .40);
+        subband_.computeSigmaScaleGpu(gpu_sigma_scale_vector, gpu_std_vector, nbox_gain, num_channels);
+        bool P2Sums_init = false;
+
         if (nbox == 1) {
           gpu_nbox_path_sum_line = &taylor_sums[path_offset * num_channels];
         } else {
           const float* gpu_dd_sums_line = &taylor_sums[path_offset * num_channels];
-          boxcar_.computeP2SumsGpu(gpu_dd_sums_line, log2_max_p2, n_zp);
+          if (!P2Sums_init) {
+            boxcar_.computeP2SumsGpu(gpu_dd_sums_line, log2_max_p2, n_zp);
+            P2Sums_init = true;
+          }
           boxcar_.computeSumGpu(nbox, log2_max_p2, n_zp);
           gpu_nbox_path_sum_line = boxcar_.gpuNboxPathSum();
         }
 
         launchFindTopPathSNRs(gpu_nbox_path_sum_line, rounded_num_timesteps, num_channels,
-                              path_offset, drift_block, mu, gpu_sigma_scale_vector, nbox,
+                              path_offset, drift_block, gpu_mu_vector, gpu_sigma_scale_vector, nbox,
                               gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
                               gpu_top_path_Nbox);
       }
@@ -416,7 +422,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if ((coarse_channel == 0) && (debug >= 1)) {
-    fmt::print("\nfoff={} MHz t_samp={} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
+    fmt::print("\nfoff={:.3f} MHz t_samp={:.3f} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
                metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
     fmt::print("drift_rate_resolution={:.3f} drift_timesteps={} diagonal_drift_rate={:.3f}\n",
                drift_rate_resolution, drift_timesteps, diagonal_drift_rate);
@@ -469,7 +475,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
       int i_subband = candidate_freq / nf_subband;
       int candidate_within_bb_segment = bb_detector.subbandDetected()[i_subband];
-      double candidate_blk_sk = bb_detector.blockSk()[i_subband];
+      double candidate_blockSk = bb_detector.blockSk()[i_subband];
+      double candidate_blockSkClip = bb_detector.blockSkClip()[i_subband];
 
       float power = 0.f;
       float drift_tol = .05f;
@@ -478,9 +485,9 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
       if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift + drift_tol) {
         if (do_hit_screen) {
-          if (candidate_blk_sk < 3) {
+          if (candidate_blockSkClip < 2) {
             if (candidate_within_bb_segment) {
-              if ((drift_rate < -.6) || (drift_rate > .1)) {
+              if ((drift_rate < -.1) || (drift_rate > .1)) {
                 found_hit = true;
               }
             } else {
@@ -528,7 +535,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         float hit_sk = lstats[hit_start_col - start_col].sk;
         float hit_max_min = lstats[hit_start_col - start_col].max_min_ratio;
 
-        if (do_hit_screen && hit_sk >= 3) {
+        if (do_hit_screen && hit_sk >= 15) {
           found_hit = false;
         }
 
@@ -540,10 +547,10 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
               fmt::print("\n");
             }
             fmt::print("hit {:2d}: chnl {:2d} sb {:3d} {:8d} {:5d} {:10.3f} MHz, {:7.3f} Hz/sec, SNR {:5.2f} dB, BlkSK "
-                       "{:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
+                       "{:5.2f} {:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
                        hit_count, coarse_channel, candidate_freq / nf_subband,
                        candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
-                       candidate_blk_sk, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
+                       candidate_blockSk, candidate_blockSkClip, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
           }
 
           if (debug >= 3) {
@@ -562,7 +569,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
           DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2, drift_bins,
                            drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps,
-                           power, candidate_blk_sk, hit_sk, hit_max_min);
+                           power, candidate_blockSkClip, hit_sk, hit_max_min);
           output->push_back(hit);
         }
       }

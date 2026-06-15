@@ -105,8 +105,13 @@ void BoxcarWorkspace::computeSumCpu(const float* p2_path_sums, float* work, int 
   }
 }
 
-// Build boxcar widths for drift search (drift width plus powers of two)
-vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int nbox_p2_max) {
+// Build boxcar widths for drift search (drift width plus powers of two or four)
+// nbox will be incremented by 4x (5log10(4) = 3 dB per increment) beyond what is required
+// to compensate for drift alone
+// outputs a list of nbox values to evaluate
+// max_nbox_bw is the max desired nbox size in bins
+// nbox_max is the max nbox value according to allocated memory
+vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int nbox_max) {
   vector<int> nbox_list;
   nbox_list.reserve(32);
 
@@ -119,13 +124,16 @@ vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int
 
   nbox_list.push_back(nbox_drift);
 
-  float min_nbox_bw = 1.5f * nbox_drift;
+  float min_nbox_bw = 2.0f * nbox_drift;
   if (max_nbox_bw > min_nbox_bw) {
-    int n_nbox_bw = static_cast<int>(floor(log2(max(1, max_nbox_bw))));
+    int i_bw_max = static_cast<int>(floor(log2(max(1, min(max_nbox_bw,nbox_max)+1))));
     int i_bw_min = static_cast<int>(ceil(log2(min_nbox_bw)));
-    if (n_nbox_bw >= i_bw_min) {
-      for (int i_bw = i_bw_min; i_bw <= n_nbox_bw; i_bw++) {
-        nbox_list.push_back((1 << i_bw) + 1);
+    if (((i_bw_max-i_bw_min)%2)>0) {
+      i_bw_min++;
+    }
+    if (i_bw_max >= i_bw_min) {
+      for (int i_bw = i_bw_min; i_bw <= i_bw_max; i_bw+=2) {
+        nbox_list.push_back(min((1 << i_bw),nbox_max));
       }
     }
   }
@@ -134,8 +142,8 @@ vector<int> BoxcarWorkspace::buildNboxList(int drift_block, int max_nbox_bw, int
 }
 
 // Debug print boxcar width list for a drift block
-void BoxcarWorkspace::printNboxList(const vector<int>& nbox_list, int drift_block) {
-  fmt::print("drift_block={}, n_Nbox={}, Nbox = ", drift_block, nbox_list.size());
+void BoxcarWorkspace::printNboxList(const vector<int>& nbox_list, int drift_block, int nbox_max) {
+  fmt::print("drift_block={}, max_Nbox={}, n_Nbox={}, Nbox = ", drift_block, nbox_max, nbox_list.size());
   for (int nbox : nbox_list) {
     fmt::print("{} ", nbox);
   }
