@@ -301,7 +301,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     for (int i_bb_det = 0; i_bb_det < bb_detector.nDetections(); i_bb_det++) {
       const BBdet& det = bb_detector.detections()[i_bb_det];
       int freq_idx = det.sb1 * nf_subband;
-      DedopplerHit hit(metadata, freq_idx, det.fctr_MHz, det.f1_MHz, det.f2_MHz, 0, 0., det.snr, 0,
+      DedopplerHit hit(metadata, freq_idx, det.fctr_MHz, det.f1_MHz, det.f2_MHz, 0, 0., det.peak_snr, 0,
                        coarse_channel, num_timesteps, 0., det.peak_blockSkClip, -1., -1.);
       output->push_back(hit);
     }
@@ -359,6 +359,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int n_zp = config_.boxcar.n_zp();
   int max_nbox_bw = 1;
   // int max_nbox_bw = 140;
+
   max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_max());
 
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
@@ -368,6 +369,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
     vector<int> nbox_list =
         BoxcarWorkspace::buildNboxList(drift_block, max_nbox_bw, config_.boxcar.nbox_max());
+    
     int nbox_max = nbox_list.back();
     int log2_max_p2 = static_cast<int>(floor(log2(nbox_max)));
 
@@ -375,7 +377,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       BoxcarWorkspace::printNboxList(nbox_list, drift_block, config_.boxcar.nbox_max());
     }
 
-      for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
+    for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
       const float* gpu_nbox_path_sum_line;
 
       for (int nbox : nbox_list) {
@@ -395,7 +397,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
           gpu_nbox_path_sum_line = boxcar_.gpuNboxPathSum();
         }
 
-        launchFindTopPathSNRs(gpu_nbox_path_sum_line, rounded_num_timesteps, num_channels,
+        launchFindTopPathSNRs(gpu_nbox_path_sum_line, num_timesteps, rounded_num_timesteps, num_channels,
                               path_offset, drift_block, gpu_mu_vector, gpu_sigma_scale_vector, nbox,
                               gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
                               gpu_top_path_Nbox);

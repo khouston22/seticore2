@@ -9,7 +9,7 @@ struct BBdet {
   float f2_MHz = 0.f;
   float fctr_MHz = 0.f;
   float bw_MHz = 0.f;
-  float snr = 0.f;
+  float peak_snr = 0.f;
   float peak_blockSk = 0.f;
   float peak_blockSkClip = 0.f;
 };

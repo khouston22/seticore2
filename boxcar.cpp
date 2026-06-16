@@ -19,7 +19,7 @@ int readBit(int n, int bit_idx) {
 
 // BoxcarWorkspace: CPU boxcar filtering and debug
 
-// Build zero-padded power-of-2 boxcar prefix-sum table
+// Build zero-padded boxcar sum table on CPU for power-of-two (p2) values of Nbox
 void BoxcarWorkspace::computeP2SumsCpu(const float* dd_sums_line, int log2_max_p2_runtime,
                                        float* p2_path_sums, int n_zp) const {
   int n_freq = num_freq_;

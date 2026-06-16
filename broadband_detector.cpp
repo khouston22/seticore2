@@ -169,7 +169,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     int n_bb_pts = (bb_det_[i_bb_det].sb2 - bb_det_[i_bb_det].sb1 + 1) * nf_subband;
     float peak_value = StatsUtil::max(&cpu_column_sums[i_bb_det1], n_bb_pts);
     int i_subband1 = bb_det_[i_bb_det].sb1;
-    bb_det_[i_bb_det].snr =
+    bb_det_[i_bb_det].peak_snr =
         (peak_value - cpu_subband_mean[i_subband1]) / cpu_subband_std[i_subband1];
 
     int i_bb_sb1 = bb_det_[i_bb_det].sb1;
@@ -185,7 +185,7 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
                  "Peak BlkSK {:5.2f} {:5.2f}, SNR {:5.2f} dB\n",
                  i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
                  bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
-                 bb_det_[i_bb_det].peak_blockSk, bb_det_[i_bb_det].peak_blockSkClip, 10. * log10(bb_det_[i_bb_det].snr));
+                 bb_det_[i_bb_det].peak_blockSk, bb_det_[i_bb_det].peak_blockSkClip, 10. * log10(bb_det_[i_bb_det].peak_snr));
     }
     fmt::print("\n");
   }
