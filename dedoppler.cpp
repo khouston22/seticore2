@@ -434,62 +434,67 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   const int n_stat_freqs = 20;  // within stamp, calculate SK and other stats on this many adjacent start freqs
   LineStats lstats[n_stat_freqs];
+  NBdet det;
 
   // Scan top path SNRs for drift hits with minimum separation of at least window_size
 
   for (int i = 0; i * window_size < num_channels; ++i) {
-    int candidate_freq = -1;
+    int candidate_freq_idx = -1;
     float candidate_path_snr = snr_threshold;
-
+    
     for (int j = 0; j < window_size; ++j) {
-      int freq = i * window_size + j;
-      if (freq >= num_channels) {
+      int freq_idx = i * window_size + j;
+      if (freq_idx >= num_channels) {
         break;
       }
-      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
-        candidate_freq = freq;
-        candidate_path_snr = cpu_top_path_snrs[freq];
+      if (cpu_top_path_snrs[freq_idx] > candidate_path_snr) {
+        candidate_freq_idx = freq_idx;
+        candidate_path_snr = cpu_top_path_snrs[freq_idx];
       }
     }
-    if (candidate_freq < 0) {
+    if (candidate_freq_idx < 0) {
       continue;
     }
 
-    int window_end = min(num_channels, candidate_freq + window_size);
+    int window_end = min(num_channels, candidate_freq_idx + window_size);
     bool found_larger_path_snr = false;
-    for (int freq = max(0, candidate_freq - window_size + 1); freq < window_end; ++freq) {
-      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
+    for (int freq_idx = max(0, candidate_freq_idx - window_size + 1); freq_idx < window_end; ++freq_idx) {
+      if (cpu_top_path_snrs[freq_idx] > candidate_path_snr) {
         found_larger_path_snr = true;
         break;
       }
     }
-    if (!found_larger_path_snr) {
-      int drift_bins = cpu_top_drift_blocks[candidate_freq] * drift_timesteps +
-                       cpu_top_path_offsets[candidate_freq];
-      double drift_rate = drift_bins * drift_rate_resolution;
-      float snr = candidate_path_snr;
-      float snr_db = 10 * log10(snr);
-      double freq_MHz1 =
-          metadata.fch1 + (coarse_channel * num_channels + candidate_freq) * metadata.foff;
-      double total_drift_MHz = tsamp * drift_timesteps * drift_rate * 1e-6;
-      double freq_MHz2 = freq_MHz1 + total_drift_MHz;
-      double freq_MHz_ctr = (freq_MHz1 + freq_MHz2) / 2.;
 
-      int i_subband = candidate_freq / nf_subband;
-      int candidate_within_bb_segment = bb_detector.subbandDetected()[i_subband];
-      double candidate_blockSk = bb_detector.blockSk()[i_subband];
-      double candidate_blockSkClip = bb_detector.blockSkClip()[i_subband];
+    if (!found_larger_path_snr) {
+      det.coarse_channel = coarse_channel;
+      det.freq_idx = candidate_freq_idx;
+      det.drift_bins = cpu_top_drift_blocks[candidate_freq_idx] * drift_timesteps +
+                       cpu_top_path_offsets[candidate_freq_idx];
+      det.drift_rate = det.drift_bins * drift_rate_resolution;
+      det.snr = candidate_path_snr;
+      det.snr_db = 10 * log10(det.snr);
+      det.Nbox = cpu_top_path_Nbox[candidate_freq_idx];
+      det.freq_MHz1 =
+          metadata.fch1 + (coarse_channel * num_channels + candidate_freq_idx) * metadata.foff;
+      det.total_drift_MHz = tsamp * drift_timesteps * det.drift_rate * 1e-6;
+      det.freq_MHz2 = det.freq_MHz1 + det.total_drift_MHz;
+      det.freq_MHz_ctr = (det.freq_MHz1 + det.freq_MHz2) / 2.;
+
+      det.subband_idx = candidate_freq_idx / nf_subband;
+      det.within_bb_segment = bb_detector.subbandDetected()[det.subband_idx];
+      det.blockSk = bb_detector.blockSk()[det.subband_idx];
+      det.blockSkClip = bb_detector.blockSkClip()[det.subband_idx];
 
       float power = 0.f;
       float drift_tol = .05f;
 
       bool found_hit = false;
 
-      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift + drift_tol) {
+      if ((abs(det.drift_rate) >= min_drift) && (abs(det.drift_rate)) <= max_drift + drift_tol) {
         if (do_hit_screen) {
-          if (candidate_blockSkClip < 2) {
-            if (candidate_within_bb_segment) {
-              if ((drift_rate < -.1) || (drift_rate > .1)) {
+          if (det.blockSkClip < 2) {
+            if (det.within_bb_segment) {
+              if ((det.drift_rate < -.1) || (det.drift_rate > .1)) {
                 found_hit = true;
               }
             } else {
@@ -510,34 +515,33 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         int stamp_width =
             stamp_boundary_quant * (DedopplerConfig::kStampNFreqMax / stamp_boundary_quant);
         int stamp_rows = num_timesteps;
-        int stamp_start_freq_idx0 = candidate_freq + drift_bins / 2 - stamp_width / 2;
+        int stamp_start_freq_idx0 = candidate_freq_idx + det.drift_bins / 2 - stamp_width / 2;
         int stamp_start_freq_idx =
             min(num_channels - stamp_width, max(0, stamp_start_freq_idx0));
         stamp_start_freq_idx = stamp_boundary_quant * (stamp_start_freq_idx / stamp_boundary_quant);
-        int hit_start_col = candidate_freq - stamp_start_freq_idx;
-        int hit_nbox = cpu_top_path_Nbox[candidate_freq];
-        float drift_bins_per_line = static_cast<float>(drift_bins) / drift_timesteps;
+        int hit_start_col = candidate_freq_idx - stamp_start_freq_idx;
+        float drift_bins_per_line = static_cast<float>(det.drift_bins) / drift_timesteps;
 
         stamp_.extractStampGpu(stamp_.gpuStamp(), input.d_sg_data, num_timesteps, num_channels,
-                               stamp_start_freq_idx, stamp_width, 0, stamp_rows, hit_nbox);
+                               stamp_start_freq_idx, stamp_width, 0, stamp_rows, det.Nbox);
         cudaMemcpy(stamp_.cpuStamp(), stamp_.gpuStamp(),
                    stamp_width * stamp_rows * sizeof(float), cudaMemcpyDeviceToHost);
         checkCuda("cudaMemcpy stamp dev to host");
 
-        float mu_noise = cpu_subband_mean[i_subband];
-        float std_noise = cpu_subband_std[i_subband];
+        float mu_noise = cpu_subband_mean[det.subband_idx];
+        float std_noise = cpu_subband_std[det.subband_idx];
         int start_row = 0;
         int start_col = hit_start_col - 2;  // stats calc over [hit_start_col-2, hit_start_col-2+n_stat_freqs)
                                             // in debug, can verify that best snr occurs at hit_start_col
 
         StampAnalyzer::computeSk(stamp_.cpuStamp(), stamp_rows, stamp_width, mu_noise, std_noise,
-                                 n_sti, hit_nbox, start_row, stamp_rows, start_col, n_stat_freqs,
+                                 n_sti, det.Nbox, start_row, stamp_rows, start_col, n_stat_freqs,
                                  drift_bins_per_line, lstats);
 
-        float hit_sk = lstats[hit_start_col - start_col].sk;
-        float hit_max_min = lstats[hit_start_col - start_col].max_min_ratio;
+        det.hit_sk = lstats[hit_start_col - start_col].sk;
+        det.max_min_ratio = lstats[hit_start_col - start_col].max_min_ratio;
 
-        if (do_hit_screen && hit_sk >= 15) {
+        if (do_hit_screen && det.hit_sk >= 15) {
           found_hit = false;
         }
 
@@ -550,28 +554,28 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
             }
             fmt::print("hit {:2d}: chnl {:2d} sb {:3d} {:8d} {:5d} {:10.3f} MHz, {:7.3f} Hz/sec, SNR {:5.2f} dB, BlkSK "
                        "{:5.2f} {:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
-                       hit_count, coarse_channel, candidate_freq / nf_subband,
-                       candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
-                       candidate_blockSk, candidate_blockSkClip, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
+                       hit_count, coarse_channel, det.freq_idx / nf_subband,
+                       det.freq_idx - num_channels / 2, det.drift_bins, det.freq_MHz_ctr, det.drift_rate, det.snr_db,
+                       det.blockSk, det.blockSkClip, det.within_bb_segment, det.Nbox, det.hit_sk, det.max_min_ratio);
           }
 
           if (debug >= 3) {
-            int hit_end_col = hit_start_col + drift_bins;
-            int hit_nbox2 = hit_nbox / 2;
+            int hit_end_col = hit_start_col + det.drift_bins;
+            int hit_nbox2 = det.Nbox / 2;
             int hit_start_min = hit_start_col - hit_nbox2;
-            int hit_end_max = hit_end_col - hit_nbox2 + hit_nbox - 1;
+            int hit_end_max = hit_end_col - hit_nbox2 + det.Nbox - 1;
             stamp_print_count++;
             if (stamp_print_count <= 10) {
-              stamp_.printHitStampDebug(coarse_channel, hit_count, candidate_freq, drift_bins,
-                                        stamp_start_freq_idx, hit_start_col, hit_end_col, hit_nbox,
+              stamp_.printHitStampDebug(coarse_channel, hit_count, candidate_freq_idx, det.drift_bins,
+                                        stamp_start_freq_idx, hit_start_col, hit_end_col, det.Nbox,
                                         hit_start_min, hit_end_max, stamp_width, stamp_rows,
                                         drift_bins_per_line, n_stat_freqs, lstats);
             }
           }
 
-          DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2, drift_bins,
-                           drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps,
-                           power, candidate_blockSkClip, hit_sk, hit_max_min);
+          DedopplerHit hit(metadata, det.freq_idx, det.freq_MHz_ctr, det.freq_MHz1, det.freq_MHz2, det.drift_bins,
+                           det.drift_rate, det.snr, beam, det.coarse_channel, num_timesteps,
+                           power, det.blockSkClip, det.hit_sk, det.max_min_ratio);
           output->push_back(hit);
         }
       }
