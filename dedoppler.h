@@ -20,8 +20,8 @@ struct NBdet {
   double snr = 0.;
   double snr_db = 0.;
   double freq_MHz1 = 0.;
-  double freq_MHz_ctr = (freq_MHz1 + freq_MHz2) / 2.;
-  double freq_MHz2 = freq_MHz1 + total_drift_MHz;
+  double freq_MHz_ctr = 0.;
+  double freq_MHz2 = 0.;
   double total_drift_MHz = 0.;
   int subband_idx = -1;
   int within_bb_segment = 0;
@@ -30,9 +30,10 @@ struct NBdet {
   double hit_sk = 0.;
   double max_min_ratio = 0.;
   int Nbox;
-  double bw_MHz = 0.f;
+  double bw_MHz = 0.;
 };
 
+bool screen_hit1(const NBdet& det);
 
 struct DedopplerConfig {
   static constexpr int kStampNFreqMax = 4096;

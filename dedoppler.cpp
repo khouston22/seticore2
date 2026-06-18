@@ -78,6 +78,52 @@ Dedopplerer::~Dedopplerer() {
   cudaFreeHost(cpu_top_path_Nbox);
 }
 
+bool screen_hit1(const NBdet& det) {
+  // returns true if detection features met
+  double blockSkClip_limit = 2.;
+  double drift_rate_low = -.1; // Hz/sec
+  double drift_rate_high = .1;
+  double hit_sk_limit = 15.;
+  bool hit_ok = true;
+
+  // define bandpass regions requiring separate treatment
+  if ((det.freq_MHz1>=1555.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
+    drift_rate_low = -.4;
+  } else if ((det.freq_MHz1>=1600.) && (det.freq_MHz1<=1605.)) { // blc73
+    drift_rate_low = -.6;
+  } else if ((det.freq_MHz1>=1160.) && (det.freq_MHz1<=1220.)) { // blc75
+    drift_rate_low = -.5;
+  } else if ((det.freq_MHz1>=10876.) && (det.freq_MHz1<=11025.)) { // blc11
+    drift_rate_low = -.2;
+  } else if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { // blc47
+    drift_rate_low = -.5;
+  } else if ((det.freq_MHz1>=6001.) && (det.freq_MHz1<=6189.)) { // blc20
+    drift_rate_low = -.05;
+    drift_rate_high = .05;
+  } else if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { // blc47
+    drift_rate_low = -.5;
+  }
+
+  // exclude subbands with excessive block spectral kurtosis (based on clipped data)
+  if (det.blockSkClip >= blockSkClip_limit) {
+    hit_ok = false;
+  }
+
+  // if a broadband segment is detected, exclude hits with drift rates near zero
+  // (within drift_rate_low to drift_rate_high)
+  // if (det.within_bb_segment) {
+    // if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
+  // }
+  if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
+    
+  // exclude hits with high spectral kurtosis
+  if (det.hit_sk >= hit_sk_limit) {
+    hit_ok = false;
+  }
+
+  return hit_ok;
+}
+
 size_t Dedopplerer::memoryUsage() const {
   return num_channels * rounded_num_timesteps * sizeof(float) * 2
          + num_channels * (2 * sizeof(float) + 2 * sizeof(int));
@@ -484,6 +530,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       det.within_bb_segment = bb_detector.subbandDetected()[det.subband_idx];
       det.blockSk = bb_detector.blockSk()[det.subband_idx];
       det.blockSkClip = bb_detector.blockSkClip()[det.subband_idx];
+      det.hit_sk = 0.;
+      det.bw_MHz = 0.;
 
       float power = 0.f;
       float drift_tol = .05f;
@@ -492,17 +540,9 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
       if ((abs(det.drift_rate) >= min_drift) && (abs(det.drift_rate)) <= max_drift + drift_tol) {
         if (do_hit_screen) {
-          if (det.blockSkClip < 2) {
-            if (det.within_bb_segment) {
-              if ((det.drift_rate < -.1) || (det.drift_rate > .1)) {
-                found_hit = true;
-              }
-            } else {
-              found_hit = true;
-            }
-          }
+          found_hit = screen_hit1(det);
         } else {
-          found_hit = true;
+            found_hit = true;
         }
       }
 
@@ -515,11 +555,11 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         int stamp_width =
             stamp_boundary_quant * (DedopplerConfig::kStampNFreqMax / stamp_boundary_quant);
         int stamp_rows = num_timesteps;
-        int stamp_start_freq_idx0 = candidate_freq_idx + det.drift_bins / 2 - stamp_width / 2;
+        int stamp_start_freq_idx0 = det.freq_idx + det.drift_bins / 2 - stamp_width / 2;
         int stamp_start_freq_idx =
             min(num_channels - stamp_width, max(0, stamp_start_freq_idx0));
         stamp_start_freq_idx = stamp_boundary_quant * (stamp_start_freq_idx / stamp_boundary_quant);
-        int hit_start_col = candidate_freq_idx - stamp_start_freq_idx;
+        int hit_start_col = det.freq_idx - stamp_start_freq_idx;
         float drift_bins_per_line = static_cast<float>(det.drift_bins) / drift_timesteps;
 
         stamp_.extractStampGpu(stamp_.gpuStamp(), input.d_sg_data, num_timesteps, num_channels,
@@ -541,8 +581,9 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         det.hit_sk = lstats[hit_start_col - start_col].sk;
         det.max_min_ratio = lstats[hit_start_col - start_col].max_min_ratio;
 
-        if (do_hit_screen && det.hit_sk >= 15) {
-          found_hit = false;
+        // repeat hit screen with new features if required
+        if (do_hit_screen) {
+          found_hit = screen_hit1(det);
         }
 
         if (found_hit) {
@@ -566,7 +607,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
             int hit_end_max = hit_end_col - hit_nbox2 + det.Nbox - 1;
             stamp_print_count++;
             if (stamp_print_count <= 10) {
-              stamp_.printHitStampDebug(coarse_channel, hit_count, candidate_freq_idx, det.drift_bins,
+              stamp_.printHitStampDebug(coarse_channel, hit_count, det.freq_idx, det.drift_bins,
                                         stamp_start_freq_idx, hit_start_col, hit_end_col, det.Nbox,
                                         hit_start_min, hit_end_max, stamp_width, stamp_rows,
                                         drift_bins_per_line, n_stat_freqs, lstats);
