@@ -111,9 +111,10 @@ bool screen_hit1(const NBdet& det) {
 
   // if a broadband segment is detected, exclude hits with drift rates near zero
   // (within drift_rate_low to drift_rate_high)
-  // if (det.within_bb_segment) {
+  // if (det.within_bb_segment) {  // S1
     // if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
   // }
+  // S2
   if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
     
   // exclude hits with high spectral kurtosis
