@@ -85,23 +85,59 @@ bool screen_hit1(const NBdet& det) {
   double drift_rate_high = .1;
   double hit_sk_limit = 15.;
   bool hit_ok = true;
+  bool special_case = true;
 
   // define bandpass regions requiring separate treatment
-  if ((det.freq_MHz1>=1555.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
+  if ((det.freq_MHz1>=790.) && (det.freq_MHz1<=880.)) { // blc47
+    hit_sk_limit = 3.;
+    if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { 
+      blockSkClip_limit = 1.5;
+      drift_rate_low = -.5;
+    } else if ((det.freq_MHz1>=855.) && (det.freq_MHz1<=860.)) { 
+      blockSkClip_limit = 1.5;
+    }
+  } else if ((det.freq_MHz1>=1130.) && (det.freq_MHz1<=1260.)) { // blc75
+    hit_sk_limit = 3.;
+    if ((det.freq_MHz1>=1160.) && (det.freq_MHz1<=1220.)) { 
+      drift_rate_low = -.5;
+    }
+  } else if ((det.freq_MHz1>=1555.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
     drift_rate_low = -.4;
   } else if ((det.freq_MHz1>=1600.) && (det.freq_MHz1<=1605.)) { // blc73
-    drift_rate_low = -.6;
-  } else if ((det.freq_MHz1>=1160.) && (det.freq_MHz1<=1220.)) { // blc75
-    drift_rate_low = -.5;
-  } else if ((det.freq_MHz1>=10876.) && (det.freq_MHz1<=11025.)) { // blc11
+    blockSkClip_limit = 1.5;
+  } else if ((det.freq_MHz1>=3960.) && (det.freq_MHz1<=3985.)) { // blc35
+    drift_rate_high = .35;
+    drift_rate_low = -.35;
+  } else if ((det.freq_MHz1>=4195.) && (det.freq_MHz1<=4200.)) { // blc34
+    drift_rate_low = -.20;
+  } else if ((det.freq_MHz1>=5055.) && (det.freq_MHz1<=5070.)) { // blc30
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=6183.) && (det.freq_MHz1<=6190.)) { // blc20
+    blockSkClip_limit = 1.5;
+  } else if ((det.freq_MHz1>=7310.) && (det.freq_MHz1<=7320.)) { // blc10
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=7423.) && (det.freq_MHz1<=7430.)) { // blc05
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=7623.) && (det.freq_MHz1<=7630.)) { // blc04
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=8330.) && (det.freq_MHz1<=8380.)) { // blc00
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=8435.) && (det.freq_MHz1<=8440.)) { // blc00
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=8990.) && (det.freq_MHz1<=9002.)) { // blc30
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=10120.) && (det.freq_MHz1<=10127.)) { // blc20
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=10740.) && (det.freq_MHz1<=10775.)) { // blc12
+    drift_rate_low = -.15;
+  } else if ((det.freq_MHz1>=10876.) && (det.freq_MHz1<=11025.)) { // blc11 (Starlink downlink)
     drift_rate_low = -.2;
-  } else if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { // blc47
-    drift_rate_low = -.5;
-  } else if ((det.freq_MHz1>=6001.) && (det.freq_MHz1<=6189.)) { // blc20
-    drift_rate_low = -.05;
-    drift_rate_high = .05;
-  } else if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { // blc47
-    drift_rate_low = -.5;
+  } else if ((det.freq_MHz1>=11040.) && (det.freq_MHz1<=11065.)) { // blc11
+    drift_rate_low = -.1;
+  } else if ((det.freq_MHz1>=11245.) && (det.freq_MHz1<=11255.)) { // blc10
+    hit_sk_limit = 2.;
+  } else {
+    special_case = false;
   }
 
   // exclude subbands with excessive block spectral kurtosis (based on clipped data)
@@ -109,14 +145,12 @@ bool screen_hit1(const NBdet& det) {
     hit_ok = false;
   }
 
-  // if a broadband segment is detected, exclude hits with drift rates near zero
-  // (within drift_rate_low to drift_rate_high)
-  // if (det.within_bb_segment) {  // S1
-    // if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
-  // }
-  // S2
-  if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
-    
+  // if a broadband segment is detected or in special bandpass region, 
+  // exclude hits with drift rates near zero (within drift_rate_low to drift_rate_high)
+  if ((det.within_bb_segment)||(special_case)) { 
+    if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
+  }
+  
   // exclude hits with high spectral kurtosis
   if (det.hit_sk >= hit_sk_limit) {
     hit_ok = false;
