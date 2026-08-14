@@ -78,6 +78,87 @@ Dedopplerer::~Dedopplerer() {
   cudaFreeHost(cpu_top_path_Nbox);
 }
 
+bool screen_hit1(const NBdet& det) {
+  // returns true if detection features met
+  double blockSkClip_limit = 2.;
+  double drift_rate_low = -.1; // Hz/sec
+  double drift_rate_high = .1;
+  double hit_sk_limit = 15.;
+  bool hit_ok = true;
+  bool special_case = true;
+
+  // define bandpass regions requiring separate treatment
+  if ((det.freq_MHz1>=790.) && (det.freq_MHz1<=880.)) { // blc47
+    hit_sk_limit = 3.;
+    if ((det.freq_MHz1>=822.) && (det.freq_MHz1<=828.)) { 
+      blockSkClip_limit = 1.5;
+      drift_rate_low = -.5;
+    } else if ((det.freq_MHz1>=855.) && (det.freq_MHz1<=860.)) { 
+      blockSkClip_limit = 1.5;
+    }
+  } else if ((det.freq_MHz1>=1130.) && (det.freq_MHz1<=1260.)) { // blc75
+    hit_sk_limit = 3.;
+    if ((det.freq_MHz1>=1160.) && (det.freq_MHz1<=1220.)) { 
+      drift_rate_low = -.5;
+    }
+  } else if ((det.freq_MHz1>=1555.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
+    drift_rate_low = -.4;
+  } else if ((det.freq_MHz1>=1600.) && (det.freq_MHz1<=1605.)) { // blc73
+    blockSkClip_limit = 1.5;
+  } else if ((det.freq_MHz1>=3960.) && (det.freq_MHz1<=3985.)) { // blc35
+    drift_rate_high = .35;
+    drift_rate_low = -.35;
+  } else if ((det.freq_MHz1>=4195.) && (det.freq_MHz1<=4200.)) { // blc34
+    drift_rate_low = -.20;
+  } else if ((det.freq_MHz1>=5055.) && (det.freq_MHz1<=5070.)) { // blc30
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=6183.) && (det.freq_MHz1<=6190.)) { // blc20
+    blockSkClip_limit = 1.5;
+  } else if ((det.freq_MHz1>=7310.) && (det.freq_MHz1<=7320.)) { // blc10
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=7423.) && (det.freq_MHz1<=7430.)) { // blc05
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=7623.) && (det.freq_MHz1<=7630.)) { // blc04
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=8330.) && (det.freq_MHz1<=8380.)) { // blc00
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=8435.) && (det.freq_MHz1<=8440.)) { // blc00
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=8990.) && (det.freq_MHz1<=9002.)) { // blc30
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=10120.) && (det.freq_MHz1<=10127.)) { // blc20
+    hit_sk_limit = 2.;
+  } else if ((det.freq_MHz1>=10740.) && (det.freq_MHz1<=10775.)) { // blc12
+    drift_rate_low = -.15;
+  } else if ((det.freq_MHz1>=10876.) && (det.freq_MHz1<=11025.)) { // blc11 (Starlink downlink)
+    drift_rate_low = -.2;
+  } else if ((det.freq_MHz1>=11040.) && (det.freq_MHz1<=11065.)) { // blc11
+    drift_rate_low = -.1;
+  } else if ((det.freq_MHz1>=11245.) && (det.freq_MHz1<=11255.)) { // blc10
+    hit_sk_limit = 2.;
+  } else {
+    special_case = false;
+  }
+
+  // exclude subbands with excessive block spectral kurtosis (based on clipped data)
+  if (det.blockSkClip >= blockSkClip_limit) {
+    hit_ok = false;
+  }
+
+  // if a broadband segment is detected or in special bandpass region, 
+  // exclude hits with drift rates near zero (within drift_rate_low to drift_rate_high)
+  if ((det.within_bb_segment)||(special_case)) { 
+    if ((det.drift_rate > drift_rate_low) && (det.drift_rate < drift_rate_high)) hit_ok = false;
+  }
+  
+  // exclude hits with high spectral kurtosis
+  if (det.hit_sk >= hit_sk_limit) {
+    hit_ok = false;
+  }
+
+  return hit_ok;
+}
+
 size_t Dedopplerer::memoryUsage() const {
   return num_channels * rounded_num_timesteps * sizeof(float) * 2
          + num_channels * (2 * sizeof(float) + 2 * sizeof(int));
@@ -301,8 +382,8 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
     for (int i_bb_det = 0; i_bb_det < bb_detector.nDetections(); i_bb_det++) {
       const BBdet& det = bb_detector.detections()[i_bb_det];
       int freq_idx = det.sb1 * nf_subband;
-      DedopplerHit hit(metadata, freq_idx, det.fctr_MHz, det.f1_MHz, det.f2_MHz, 0, 0., det.snr, 0,
-                       coarse_channel, num_timesteps, 0., det.peak_blk_sk, -1., -1.);
+      DedopplerHit hit(metadata, freq_idx, det.fctr_MHz, det.f1_MHz, det.f2_MHz, 0, 0., det.peak_snr, 0,
+                       coarse_channel, num_timesteps, 0., det.peak_blockSkClip, -1., -1.);
       output->push_back(hit);
     }
   }
@@ -358,7 +439,9 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   int n_zp = config_.boxcar.n_zp();
   int max_nbox_bw = 1;
-  max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_p2_max());
+  // int max_nbox_bw = 140;
+
+  max_nbox_bw = min(max_nbox_bw, config_.boxcar.nbox_max());
 
   for (int drift_block = min_drift_block; drift_block <= max_drift_block; ++drift_block) {
 
@@ -366,31 +449,37 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
                                                    rounded_num_timesteps, num_channels, drift_block);
 
     vector<int> nbox_list =
-        BoxcarWorkspace::buildNboxList(drift_block, max_nbox_bw, config_.boxcar.nbox_p2_max());
+        BoxcarWorkspace::buildNboxList(drift_block, max_nbox_bw, config_.boxcar.nbox_max());
+    
     int nbox_max = nbox_list.back();
     int log2_max_p2 = static_cast<int>(floor(log2(nbox_max)));
 
-    if ((coarse_channel == 0) && (drift_block == 0)) {
-      BoxcarWorkspace::printNboxList(nbox_list, drift_block);
+    if ((coarse_channel == 0) && (debug>=2)) {
+      BoxcarWorkspace::printNboxList(nbox_list, drift_block, config_.boxcar.nbox_max());
     }
 
-    for (int nbox : nbox_list) {
-      float nbox_gain = pow(nbox, .40);
-      subband_.computeSigmaScaleGpu(gpu_sigma_scale_vector, gpu_std_vector, nbox_gain, num_channels);
+    for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
+      const float* gpu_nbox_path_sum_line;
 
-      for (int path_offset = 0; path_offset < rounded_num_timesteps; ++path_offset) {
-        const float* gpu_nbox_path_sum_line;
+      for (int nbox : nbox_list) {
+        float nbox_gain = pow(nbox, .40);
+        subband_.computeSigmaScaleGpu(gpu_sigma_scale_vector, gpu_std_vector, nbox_gain, num_channels);
+        bool P2Sums_init = false;
+
         if (nbox == 1) {
           gpu_nbox_path_sum_line = &taylor_sums[path_offset * num_channels];
         } else {
           const float* gpu_dd_sums_line = &taylor_sums[path_offset * num_channels];
-          boxcar_.computeP2SumsGpu(gpu_dd_sums_line, log2_max_p2, n_zp);
+          if (!P2Sums_init) {
+            boxcar_.computeP2SumsGpu(gpu_dd_sums_line, log2_max_p2, n_zp);
+            P2Sums_init = true;
+          }
           boxcar_.computeSumGpu(nbox, log2_max_p2, n_zp);
           gpu_nbox_path_sum_line = boxcar_.gpuNboxPathSum();
         }
 
-        launchFindTopPathSNRs(gpu_nbox_path_sum_line, rounded_num_timesteps, num_channels,
-                              path_offset, drift_block, mu, gpu_sigma_scale_vector, nbox,
+        launchFindTopPathSNRs(gpu_nbox_path_sum_line, num_timesteps, rounded_num_timesteps, num_channels,
+                              path_offset, drift_block, gpu_mu_vector, gpu_sigma_scale_vector, nbox,
                               gpu_top_path_snrs, gpu_top_drift_blocks, gpu_top_path_offsets,
                               gpu_top_path_Nbox);
       }
@@ -416,7 +505,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
   int window_size = 2 * ceil(normalized_max_drift * drift_timesteps);
 
   if ((coarse_channel == 0) && (debug >= 1)) {
-    fmt::print("\nfoff={} MHz t_samp={} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
+    fmt::print("\nfoff={:.3f} MHz t_samp={:.3f} sec, n_sti={}, n_lti={}, n_avg={}, n_fft={}\n",
                metadata.foff * 1e6, metadata.tsamp, n_sti, n_lti, n_avg, num_channels);
     fmt::print("drift_rate_resolution={:.3f} drift_timesteps={} diagonal_drift_rate={:.3f}\n",
                drift_rate_resolution, drift_timesteps, diagonal_drift_rate);
@@ -426,69 +515,69 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
 
   const int n_stat_freqs = 20;  // within stamp, calculate SK and other stats on this many adjacent start freqs
   LineStats lstats[n_stat_freqs];
+  NBdet det;
 
   // Scan top path SNRs for drift hits with minimum separation of at least window_size
 
   for (int i = 0; i * window_size < num_channels; ++i) {
-    int candidate_freq = -1;
+    int candidate_freq_idx = -1;
     float candidate_path_snr = snr_threshold;
-
+    
     for (int j = 0; j < window_size; ++j) {
-      int freq = i * window_size + j;
-      if (freq >= num_channels) {
+      int freq_idx = i * window_size + j;
+      if (freq_idx >= num_channels) {
         break;
       }
-      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
-        candidate_freq = freq;
-        candidate_path_snr = cpu_top_path_snrs[freq];
+      if (cpu_top_path_snrs[freq_idx] > candidate_path_snr) {
+        candidate_freq_idx = freq_idx;
+        candidate_path_snr = cpu_top_path_snrs[freq_idx];
       }
     }
-    if (candidate_freq < 0) {
+    if (candidate_freq_idx < 0) {
       continue;
     }
 
-    int window_end = min(num_channels, candidate_freq + window_size);
+    int window_end = min(num_channels, candidate_freq_idx + window_size);
     bool found_larger_path_snr = false;
-    for (int freq = max(0, candidate_freq - window_size + 1); freq < window_end; ++freq) {
-      if (cpu_top_path_snrs[freq] > candidate_path_snr) {
+    for (int freq_idx = max(0, candidate_freq_idx - window_size + 1); freq_idx < window_end; ++freq_idx) {
+      if (cpu_top_path_snrs[freq_idx] > candidate_path_snr) {
         found_larger_path_snr = true;
         break;
       }
     }
-    if (!found_larger_path_snr) {
-      int drift_bins = cpu_top_drift_blocks[candidate_freq] * drift_timesteps +
-                       cpu_top_path_offsets[candidate_freq];
-      double drift_rate = drift_bins * drift_rate_resolution;
-      float snr = candidate_path_snr;
-      float snr_db = 10 * log10(snr);
-      double freq_MHz1 =
-          metadata.fch1 + (coarse_channel * num_channels + candidate_freq) * metadata.foff;
-      double total_drift_MHz = tsamp * drift_timesteps * drift_rate * 1e-6;
-      double freq_MHz2 = freq_MHz1 + total_drift_MHz;
-      double freq_MHz_ctr = (freq_MHz1 + freq_MHz2) / 2.;
 
-      int i_subband = candidate_freq / nf_subband;
-      int candidate_within_bb_segment = bb_detector.subbandDetected()[i_subband];
-      double candidate_blk_sk = bb_detector.blockSk()[i_subband];
+    if (!found_larger_path_snr) {
+      det.coarse_channel = coarse_channel;
+      det.freq_idx = candidate_freq_idx;
+      det.drift_bins = cpu_top_drift_blocks[candidate_freq_idx] * drift_timesteps +
+                       cpu_top_path_offsets[candidate_freq_idx];
+      det.drift_rate = det.drift_bins * drift_rate_resolution;
+      det.snr = candidate_path_snr;
+      det.snr_db = 10 * log10(det.snr);
+      det.Nbox = cpu_top_path_Nbox[candidate_freq_idx];
+      det.freq_MHz1 =
+          metadata.fch1 + (coarse_channel * num_channels + candidate_freq_idx) * metadata.foff;
+      det.total_drift_MHz = tsamp * drift_timesteps * det.drift_rate * 1e-6;
+      det.freq_MHz2 = det.freq_MHz1 + det.total_drift_MHz;
+      det.freq_MHz_ctr = (det.freq_MHz1 + det.freq_MHz2) / 2.;
+
+      det.subband_idx = candidate_freq_idx / nf_subband;
+      det.within_bb_segment = bb_detector.subbandDetected()[det.subband_idx];
+      det.blockSk = bb_detector.blockSk()[det.subband_idx];
+      det.blockSkClip = bb_detector.blockSkClip()[det.subband_idx];
+      det.hit_sk = 0.;
+      det.bw_MHz = 0.;
 
       float power = 0.f;
       float drift_tol = .05f;
 
       bool found_hit = false;
 
-      if ((abs(drift_rate) >= min_drift) && (abs(drift_rate)) <= max_drift + drift_tol) {
+      if ((abs(det.drift_rate) >= min_drift) && (abs(det.drift_rate)) <= max_drift + drift_tol) {
         if (do_hit_screen) {
-          if (candidate_blk_sk < 3) {
-            if (candidate_within_bb_segment) {
-              if ((drift_rate < -.6) || (drift_rate > .1)) {
-                found_hit = true;
-              }
-            } else {
-              found_hit = true;
-            }
-          }
+          found_hit = screen_hit1(det);
         } else {
-          found_hit = true;
+            found_hit = true;
         }
       }
 
@@ -501,35 +590,35 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
         int stamp_width =
             stamp_boundary_quant * (DedopplerConfig::kStampNFreqMax / stamp_boundary_quant);
         int stamp_rows = num_timesteps;
-        int stamp_start_freq_idx0 = candidate_freq + drift_bins / 2 - stamp_width / 2;
+        int stamp_start_freq_idx0 = det.freq_idx + det.drift_bins / 2 - stamp_width / 2;
         int stamp_start_freq_idx =
             min(num_channels - stamp_width, max(0, stamp_start_freq_idx0));
         stamp_start_freq_idx = stamp_boundary_quant * (stamp_start_freq_idx / stamp_boundary_quant);
-        int hit_start_col = candidate_freq - stamp_start_freq_idx;
-        int hit_nbox = cpu_top_path_Nbox[candidate_freq];
-        float drift_bins_per_line = static_cast<float>(drift_bins) / drift_timesteps;
+        int hit_start_col = det.freq_idx - stamp_start_freq_idx;
+        float drift_bins_per_line = static_cast<float>(det.drift_bins) / drift_timesteps;
 
         stamp_.extractStampGpu(stamp_.gpuStamp(), input.d_sg_data, num_timesteps, num_channels,
-                               stamp_start_freq_idx, stamp_width, 0, stamp_rows, hit_nbox);
+                               stamp_start_freq_idx, stamp_width, 0, stamp_rows, det.Nbox);
         cudaMemcpy(stamp_.cpuStamp(), stamp_.gpuStamp(),
                    stamp_width * stamp_rows * sizeof(float), cudaMemcpyDeviceToHost);
         checkCuda("cudaMemcpy stamp dev to host");
 
-        float mu_noise = cpu_subband_mean[i_subband];
-        float std_noise = cpu_subband_std[i_subband];
+        float mu_noise = cpu_subband_mean[det.subband_idx];
+        float std_noise = cpu_subband_std[det.subband_idx];
         int start_row = 0;
         int start_col = hit_start_col - 2;  // stats calc over [hit_start_col-2, hit_start_col-2+n_stat_freqs)
                                             // in debug, can verify that best snr occurs at hit_start_col
 
         StampAnalyzer::computeSk(stamp_.cpuStamp(), stamp_rows, stamp_width, mu_noise, std_noise,
-                                 n_sti, hit_nbox, start_row, stamp_rows, start_col, n_stat_freqs,
+                                 n_sti, det.Nbox, start_row, stamp_rows, start_col, n_stat_freqs,
                                  drift_bins_per_line, lstats);
 
-        float hit_sk = lstats[hit_start_col - start_col].sk;
-        float hit_max_min = lstats[hit_start_col - start_col].max_min_ratio;
+        det.hit_sk = lstats[hit_start_col - start_col].sk;
+        det.max_min_ratio = lstats[hit_start_col - start_col].max_min_ratio;
 
-        if (do_hit_screen && hit_sk >= 3) {
-          found_hit = false;
+        // repeat hit screen with new features if required
+        if (do_hit_screen) {
+          found_hit = screen_hit1(det);
         }
 
         if (found_hit) {
@@ -540,29 +629,29 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
               fmt::print("\n");
             }
             fmt::print("hit {:2d}: chnl {:2d} sb {:3d} {:8d} {:5d} {:10.3f} MHz, {:7.3f} Hz/sec, SNR {:5.2f} dB, BlkSK "
-                       "{:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
-                       hit_count, coarse_channel, candidate_freq / nf_subband,
-                       candidate_freq - num_channels / 2, drift_bins, freq_MHz_ctr, drift_rate, snr_db,
-                       candidate_blk_sk, candidate_within_bb_segment, hit_nbox, hit_sk, hit_max_min);
+                       "{:5.2f} {:5.2f} ({}), Nbox {}, SK {:5.3f}, maxmin  {:5.3f}\n",
+                       hit_count, coarse_channel, det.freq_idx / nf_subband,
+                       det.freq_idx - num_channels / 2, det.drift_bins, det.freq_MHz_ctr, det.drift_rate, det.snr_db,
+                       det.blockSk, det.blockSkClip, det.within_bb_segment, det.Nbox, det.hit_sk, det.max_min_ratio);
           }
 
           if (debug >= 3) {
-            int hit_end_col = hit_start_col + drift_bins;
-            int hit_nbox2 = hit_nbox / 2;
+            int hit_end_col = hit_start_col + det.drift_bins;
+            int hit_nbox2 = det.Nbox / 2;
             int hit_start_min = hit_start_col - hit_nbox2;
-            int hit_end_max = hit_end_col - hit_nbox2 + hit_nbox - 1;
+            int hit_end_max = hit_end_col - hit_nbox2 + det.Nbox - 1;
             stamp_print_count++;
             if (stamp_print_count <= 10) {
-              stamp_.printHitStampDebug(coarse_channel, hit_count, candidate_freq, drift_bins,
-                                        stamp_start_freq_idx, hit_start_col, hit_end_col, hit_nbox,
+              stamp_.printHitStampDebug(coarse_channel, hit_count, det.freq_idx, det.drift_bins,
+                                        stamp_start_freq_idx, hit_start_col, hit_end_col, det.Nbox,
                                         hit_start_min, hit_end_max, stamp_width, stamp_rows,
                                         drift_bins_per_line, n_stat_freqs, lstats);
             }
           }
 
-          DedopplerHit hit(metadata, candidate_freq, freq_MHz_ctr, freq_MHz1, freq_MHz2, drift_bins,
-                           drift_rate, candidate_path_snr, beam, coarse_channel, num_timesteps,
-                           power, candidate_blk_sk, hit_sk, hit_max_min);
+          DedopplerHit hit(metadata, det.freq_idx, det.freq_MHz_ctr, det.freq_MHz1, det.freq_MHz2, det.drift_bins,
+                           det.drift_rate, det.snr, beam, det.coarse_channel, num_timesteps,
+                           power, det.blockSkClip, det.hit_sk, det.max_min_ratio);
           output->push_back(hit);
         }
       }

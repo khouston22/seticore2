@@ -27,7 +27,7 @@ __global__ void gpu_boxcar_scale(int n, float* z, const float* x, float scale) {
   }
 }
 
-// Build zero-padded power-of-2 boxcar prefix-sum table on GPU
+// Build zero-padded boxcar sum table on GPU for power-of-two (p2) values of Nbox
 void genBoxcarP2SumsGpu(float* gpu_p2_path_sums, const float* gpu_dd_sums_line, int n_freq,
                         int log2_max_p2, int n_zp) {
   int nbox_p2_max = 1 << log2_max_p2;

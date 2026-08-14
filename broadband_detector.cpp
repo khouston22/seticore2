@@ -73,7 +73,8 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
   // Threshold subband std for preliminary detections
   // Use float value as flag for simplify printout in debug
   for (int i_subband = 0; i_subband < n_subband; i_subband++) {
-    if (subband_std_no_clip[i_subband] > bb_det_threshold) {
+    // if (subband_std_no_clip[i_subband] > bb_det_threshold) {
+    if (cpu_subband_std[i_subband] > bb_det_threshold) {
       bb_subband_detected_[i_subband] = 1.0f;
       bb_subband_prelim_det_count++;
     } else {
@@ -168,22 +169,23 @@ void BroadbandDetector::BroadbandDetect(int n_subband, int nf_subband, int n_sub
     int n_bb_pts = (bb_det_[i_bb_det].sb2 - bb_det_[i_bb_det].sb1 + 1) * nf_subband;
     float peak_value = StatsUtil::max(&cpu_column_sums[i_bb_det1], n_bb_pts);
     int i_subband1 = bb_det_[i_bb_det].sb1;
-    bb_det_[i_bb_det].snr =
+    bb_det_[i_bb_det].peak_snr =
         (peak_value - cpu_subband_mean[i_subband1]) / cpu_subband_std[i_subband1];
 
     int i_bb_sb1 = bb_det_[i_bb_det].sb1;
     int n_bb_sb = bb_det_[i_bb_det].sb2 - bb_det_[i_bb_det].sb1 + 1;
-    bb_det_[i_bb_det].peak_blk_sk = StatsUtil::max(&blk_sk_no_clip_[i_bb_sb1], n_bb_sb);
+    bb_det_[i_bb_det].peak_blockSk = StatsUtil::max(&blk_sk_no_clip_[i_bb_sb1], n_bb_sb);
+    bb_det_[i_bb_det].peak_blockSkClip = StatsUtil::max(&blk_sk_clip_[i_bb_sb1], n_bb_sb);
   }
 
   // Debug summary of each detection
   if (debug >= 1) {
     for (int i_bb_det = 0; i_bb_det < n_bb_det_; i_bb_det++) {
       fmt::print("BB det {:3d}: subband {:3d} - {:3d}, {:8.2f} - {:8.2f} MHz, center {:8.2f} MHz, BW {:5.0f} KHz, "
-                 "Peak BlkSK {:5.2f}, SNR {:5.2f} dB\n",
+                 "Peak BlkSK {:5.2f} {:5.2f}, SNR {:5.2f} dB\n",
                  i_bb_det, bb_det_[i_bb_det].sb1, bb_det_[i_bb_det].sb2, bb_det_[i_bb_det].f1_MHz,
                  bb_det_[i_bb_det].f2_MHz, bb_det_[i_bb_det].fctr_MHz, bb_det_[i_bb_det].bw_MHz * 1e3,
-                 bb_det_[i_bb_det].peak_blk_sk, 10. * log10(bb_det_[i_bb_det].snr));
+                 bb_det_[i_bb_det].peak_blockSk, bb_det_[i_bb_det].peak_blockSkClip, 10. * log10(bb_det_[i_bb_det].peak_snr));
     }
     fmt::print("\n");
   }

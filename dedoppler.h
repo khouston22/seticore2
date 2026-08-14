@@ -12,6 +12,29 @@
 
 using namespace std;
 
+struct NBdet {
+  int coarse_channel = 0;
+  int freq_idx = 0;
+  int drift_bins = 0;
+  double drift_rate = 0.;
+  double snr = 0.;
+  double snr_db = 0.;
+  double freq_MHz1 = 0.;
+  double freq_MHz_ctr = 0.;
+  double freq_MHz2 = 0.;
+  double total_drift_MHz = 0.;
+  int subband_idx = -1;
+  int within_bb_segment = 0;
+  double blockSk = 0.;
+  double blockSkClip = 0.;
+  double hit_sk = 0.;
+  double max_min_ratio = 0.;
+  int Nbox;
+  double bw_MHz = 0.;
+};
+
+bool screen_hit1(const NBdet& det);
+
 struct DedopplerConfig {
   static constexpr int kStampNFreqMax = 4096;
   static constexpr int kDcReplaceOfs = 15;
