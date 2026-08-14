@@ -75,6 +75,16 @@ Major refactor of all DeDoppler code.  Outputs are unchanged from sc6.
 
 ## sc8
 
+URSI GASS 2026 presentation baseline
+
+Enhancements:
+
+* Fine tune: add screening criteria for specific frequency ranges
+* Add clipped Block SK computation
+* Add struct for Narrowband detection information
+
+## sc9
+
 Experimental branch: additional changes TBD.
 
 
