@@ -101,13 +101,24 @@ bool screen_hit1(const NBdet& det) {
     if ((det.freq_MHz1>=1160.) && (det.freq_MHz1<=1220.)) { 
       drift_rate_low = -.5;
     }
-  } else if ((det.freq_MHz1>=1555.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
-    drift_rate_low = -.4;
+  } else if ((det.freq_MHz1>=1525.) && (det.freq_MHz1<=1585.)) { // L1 GNSS blc73
+    drift_rate_high = .5;
+    drift_rate_low = -.5;
+    hit_sk_limit = 3.;
   } else if ((det.freq_MHz1>=1600.) && (det.freq_MHz1<=1605.)) { // blc73
     blockSkClip_limit = 1.5;
+  } else if ((det.freq_MHz1>=2125.) && (det.freq_MHz1<=2245.)) { // blc40
+    drift_rate_high = .20;
+    drift_rate_low = -.20;
+  } else if ((det.freq_MHz1>=2245.) && (det.freq_MHz1<=2255.)) { // blc40
+    hit_ok = false;
+  } else if ((det.freq_MHz1>=3740.) && (det.freq_MHz1<=3945.)) { // blc35
+    drift_rate_low = -.10;
   } else if ((det.freq_MHz1>=3960.) && (det.freq_MHz1<=3985.)) { // blc35
     drift_rate_high = .35;
     drift_rate_low = -.35;
+  } else if ((det.freq_MHz1>=4175.) && (det.freq_MHz1<=4195.)) { // blc34
+    drift_rate_low = -.10;
   } else if ((det.freq_MHz1>=4195.) && (det.freq_MHz1<=4200.)) { // blc34
     drift_rate_low = -.20;
   } else if ((det.freq_MHz1>=5055.) && (det.freq_MHz1<=5070.)) { // blc30
@@ -120,6 +131,8 @@ bool screen_hit1(const NBdet& det) {
     hit_ok = false;
   } else if ((det.freq_MHz1>=7623.) && (det.freq_MHz1<=7630.)) { // blc04
     hit_ok = false;
+  } else if ((det.freq_MHz1>=8150.) && (det.freq_MHz1<=8310.)) { // blc00
+    drift_rate_low = -.10;
   } else if ((det.freq_MHz1>=8330.) && (det.freq_MHz1<=8380.)) { // blc00
     hit_sk_limit = 2.;
   } else if ((det.freq_MHz1>=8435.) && (det.freq_MHz1<=8440.)) { // blc00
@@ -133,6 +146,8 @@ bool screen_hit1(const NBdet& det) {
   } else if ((det.freq_MHz1>=10876.) && (det.freq_MHz1<=11025.)) { // blc11 (Starlink downlink)
     drift_rate_low = -.2;
   } else if ((det.freq_MHz1>=11040.) && (det.freq_MHz1<=11065.)) { // blc11
+    drift_rate_low = -.1;
+  } else if ((det.freq_MHz1>=11085.) && (det.freq_MHz1<=11240.)) { // blc10
     drift_rate_low = -.1;
   } else if ((det.freq_MHz1>=11245.) && (det.freq_MHz1<=11255.)) { // blc10
     hit_sk_limit = 2.;
