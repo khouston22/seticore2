@@ -75,13 +75,17 @@ Major refactor of all DeDoppler code.  Outputs are unchanged from sc6.
 
 ## sc8
 
-URSI GASS 2026 presentation baseline
+URSI GASS 2026 presentation baseline (Aug 2026)
 
 Enhancements:
 
 * Fine tune: add screening criteria for specific frequency ranges
 * Add clipped Block SK computation
 * Add struct for Narrowband detection information
+
+URSI Radio Sciences Letters baseline (Nov 2026)
+
+* Fine tune: minor updates to screening criteria for specific frequency ranges
 
 ## sc9
 
