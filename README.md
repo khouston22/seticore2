@@ -8,11 +8,23 @@ variant De-Doppler (DD) function called "fastDD" (including a cpu-only version),
 use of explicit host-gpu memory copying (avoiding the unified memory model and "managed" 
 background copying), and improved spectrogram normalization/threshold setting/SNR estimation.
 
-Reference: K. M. Houston, "Fine-Tuning the Narrowband SETI Signal Processing Pipeline", 
-75th International Astronautical Congress (IAC), Milan, Italy, 14-18 October 2024.
+Reference: K. M. Houston, "Fine-Tuning a Narrowband SETI Signal Processing Pipeline", Acta 
+Astronautica, Volume 237, 2025, Pages 127-140, ISSN 0094-5765,
+https://doi.org/10.1016/j.actaastro.2025.08.024.
+
+Additional changes in branch sc8 (and master) involve broadband detection for RFI and 
+an optional hit screener, which greatly
+reduces the number of RFI hits, providing hits meet the screening criteria. References: 
+
+K. M. Houston, "Adapting Generalized Spectral Kurtosis Methods for RFI Excision to 
+Narrowband SETI", URSI GASS 2026, Krakow, Poland, 15-22 August 2026.
+
+K. M. Houston, "Adapting Spectral Kurtosis Methods for RFI Excision to Narrowband SETI",
+Radio Science Letters, submitted November 2026.
 
 Changes have been made only to De-Doppler mode, and assume an h5 single-antenna input
-analogous to TurboSETI on GBT.  Operation of cadence mode and beamforming mode (critical to 
+analogous to TurboSETI on GBT.  Additional fields are output for hits in the output .dat file. 
+Operation of cadence mode and beamforming mode (critical to 
 MeerKAT and VLA) have not been tested and probably need additional fixes.
 
 See file BRANCH_INFO.md to for information on branch descriptions which incrementally
