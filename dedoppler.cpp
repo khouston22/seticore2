@@ -477,7 +477,7 @@ void Dedopplerer::search(const FilterbankBuffer& input, const FilterbankMetadata
       const float* gpu_nbox_path_sum_line;
 
       for (int nbox : nbox_list) {
-        float nbox_gain = pow(nbox, .40);
+        float nbox_gain = pow(nbox, .50);
         subband_.computeSigmaScaleGpu(gpu_sigma_scale_vector, gpu_std_vector, nbox_gain, num_channels);
         bool P2Sums_init = false;
 
