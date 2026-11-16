@@ -89,6 +89,8 @@ URSI Radio Sciences Letters baseline (Nov 2026)
 
 ## sc9
 
+Changed Nbox_gain parameter to Nbox^.50 = sqrt(Nbox) rather than Nbox^.40 previously.
+
 Experimental branch: additional changes TBD.
 
 
