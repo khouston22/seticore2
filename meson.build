@@ -1,11 +1,11 @@
 project('seticore', ['cpp', 'c', 'cuda'],
         default_options: [
             'buildtype=release',
-            'cpp_std=c++14',
+            'cpp_std=c++17',
             'werror=true',
         ])
 
-basic_cuda_args = [ '--std=c++14' ]
+basic_cuda_args = [ '--std=c++17' ]
 newer_cuda_args = [ '--display-error-number',
 		            '-arch=native',
                     '--diag-suppress=1675' ]
