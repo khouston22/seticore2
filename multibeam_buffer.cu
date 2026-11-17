@@ -98,8 +98,15 @@ void MultibeamBuffer::prefetchRange(int beam, int first_time, int last_time,
 
   long start_index = index3d(beam, first_time, num_timesteps, 0, num_channels);
   size_t prefetch_size = sizeof(float) * (last_time - first_time + 1) * num_channels;  
-  cudaMemPrefetchAsync(data + start_index, prefetch_size, destination_device,
-                       prefetch_stream);
+  
+  #if CUDART_VERSION >= 13000
+    cudaMemLocation loc = {};
+    loc.type = cudaMemLocationTypeDevice;
+    loc.id = destination_device;
+    cudaMemPrefetchAsync(data + start_index, prefetch_size, loc, 0, prefetch_stream);
+  #else
+    cudaMemPrefetchAsync(data + start_index, prefetch_size, destination_device, prefetch_stream);
+  #endif
   checkCuda("MultibeamBuffer prefetchRange");
 }
 
